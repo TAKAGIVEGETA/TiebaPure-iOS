@@ -139,6 +139,26 @@ struct SessionMonitoringTiebaAPI: TiebaAPIService {
         }
     }
 
+    func subpostPage(
+        account: Account?,
+        threadID: Int64,
+        postID: UInt64,
+        forumID: Int64,
+        page: Int,
+        subpostID: UInt64
+    ) async throws -> SubpostPage {
+        try await monitored(account: account) {
+            try await base.subpostPage(
+                account: account,
+                threadID: threadID,
+                postID: postID,
+                forumID: forumID,
+                page: page,
+                subpostID: subpostID
+            )
+        }
+    }
+
     func userProfile(account: Account?, user: UserSummary) async throws -> UserProfile {
         try await monitored(account: account) {
             try await base.userProfile(account: account, user: user)

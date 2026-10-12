@@ -3366,6 +3366,29 @@ final class TiebaPureSmokeTests: XCTestCase {
         XCTAssertEqual(SubpostSheetTitle.text(floor: 2, count: 10), "2楼的回复(10条)")
     }
 
+    func testSubpostPageMetadataDoesNotStopAfterALargerServerPage() {
+        XCTAssertTrue(SubpostPageMetadataPolicy.hasMore(
+            currentPage: 1,
+            totalPage: 3,
+            serverHasMore: false
+        ))
+        XCTAssertFalse(SubpostPageMetadataPolicy.hasMore(
+            currentPage: 3,
+            totalPage: 3,
+            serverHasMore: false
+        ))
+        XCTAssertTrue(SubpostPageMetadataPolicy.hasMore(
+            currentPage: 3,
+            totalPage: 3,
+            serverHasMore: true
+        ))
+        XCTAssertFalse(SubpostPageMetadataPolicy.hasMore(
+            currentPage: 1,
+            totalPage: 0,
+            serverHasMore: false
+        ))
+    }
+
     func testSubpostDetailUsesCompactLabelFreeSeparator() {
         XCTAssertEqual(SubpostDetailSectionLayout.separatorHeight, 12)
         XCTAssertGreaterThan(

@@ -16,6 +16,25 @@ struct ThreadPage: Equatable, Sendable {
     var isCollected: Bool = false
 }
 
+struct SubpostPage: Equatable, Sendable {
+    var subposts: [Subpost]
+    var currentPage: Int
+    var totalPage: Int
+    var hasMore: Bool
+}
+
+enum SubpostPageMetadataPolicy {
+    static func hasMore(
+        currentPage: Int,
+        totalPage: Int,
+        serverHasMore: Bool
+    ) -> Bool {
+        if serverHasMore { return true }
+        guard totalPage > 0 else { return false }
+        return max(currentPage, 1) < totalPage
+    }
+}
+
 struct ThreadMainPostFallback: Equatable, Hashable, Sendable {
     let threadID: Int64
     let postID: UInt64?

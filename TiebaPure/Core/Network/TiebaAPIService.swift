@@ -36,6 +36,14 @@ protocol TiebaAPIService {
         page: Int,
         subpostID: UInt64
     ) async throws -> [Subpost]
+    func subpostPage(
+        account: Account?,
+        threadID: Int64,
+        postID: UInt64,
+        forumID: Int64,
+        page: Int,
+        subpostID: UInt64
+    ) async throws -> SubpostPage
     func userProfile(account: Account?, user: UserSummary) async throws -> UserProfile
     func userThreads(account: Account?, userID: Int64, page: Int) async throws -> UserThreadsPage
     func updateOwnProfile(account: Account, request: UserProfileEditRequest) async throws
@@ -174,6 +182,29 @@ extension TiebaAPIService {
             forumID: forumID,
             page: page,
             subpostID: subpostID
+        )
+    }
+
+    func subpostPage(
+        account: Account?,
+        threadID: Int64,
+        postID: UInt64,
+        forumID: Int64,
+        page: Int,
+        subpostID: UInt64
+    ) async throws -> SubpostPage {
+        SubpostPage(
+            subposts: try await subposts(
+                account: account,
+                threadID: threadID,
+                postID: postID,
+                forumID: forumID,
+                page: page,
+                subpostID: subpostID
+            ),
+            currentPage: page,
+            totalPage: page,
+            hasMore: false
         )
     }
 }

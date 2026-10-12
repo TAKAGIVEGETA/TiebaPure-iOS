@@ -2758,12 +2758,6 @@ private struct SubpostListSheet: View {
     @Environment(\.readingPreferences) private var readingPreferences
     @ObservedObject private var blocklistStore = BlocklistStore.shared
 
-    // pb/floor carries no client page-size field; the server pages replies
-    // ten at a time. A short or empty page therefore ends pagination, while
-    // the snapshot subpostCount would freeze out replies posted after the
-    // thread page loaded.
-    private static let subpostsPageSize = 10
-
     let account: Account?
     let thread: ThreadSummary
     let forum: Forum
@@ -2779,7 +2773,7 @@ private struct SubpostListSheet: View {
     @State private var didLoad = false
     @State private var errorMessage: String?
     @State private var requestGeneration = 0
-    @State private var loadTask: Task<[Subpost], Error>?
+    @State private var loadTask: Task<SubpostPage, Error>?
     @State private var selectedUser: UserSummary?
     @State private var userResolutionTask: Task<Void, Never>?
     @State private var userResolutionGeneration = 0
@@ -3210,7 +3204,7 @@ private struct SubpostListSheet: View {
             let requestedSubpostID = requestedPage == 1
                 ? (pendingSubmittedSubpostID ?? 0)
                 : 0
-            let task = Task { try await environment.api.subposts(
+            let task = Task { try await environment.api.subpostPage(
                 account: account,
                 threadID: threadID,
                 postID: post.id,
@@ -3219,7 +3213,8 @@ private struct SubpostListSheet: View {
                 subpostID: requestedSubpostID
             ) }
             loadTask = task
-            let loaded = try await task.value
+            let loadedPage = try await task.value
+            let loaded = loadedPage.subposts
             guard generation == requestGeneration else { return }
             let visibleSubposts = loaded.filter(TiebaContentFilter.shouldKeep(subpost:))
             if requestedPage == 1 {
@@ -3229,9 +3224,7 @@ private struct SubpostListSheet: View {
                 let knownIDs = Set(subposts.map(\.id))
                 subposts.append(contentsOf: visibleSubposts.filter { knownIDs.contains($0.id) == false })
             }
-            // The API deliberately returns an unfiltered page so local
-            // blocking cannot shorten the apparent server page.
-            hasMore = loaded.count == Self.subpostsPageSize
+            hasMore = loadedPage.hasMore
             nextPage = requestedPage + 1
             continuation = LocallyFilteredPaginationPolicy.decision(
                 visibleItemCount: visibleSubposts.count,

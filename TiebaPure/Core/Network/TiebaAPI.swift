@@ -560,14 +560,14 @@ extension TiebaAPI {
         return PostMapper.threadPage(from: response)
     }
 
-    func subposts(
+    func subpostPage(
         account: Account?,
         threadID: Int64,
         postID: UInt64,
         forumID: Int64,
         page: Int,
-        subpostID: UInt64 = 0
-    ) async throws -> [Subpost] {
+        subpostID: UInt64
+    ) async throws -> SubpostPage {
         let requestPage = try TiebaRequestValuePolicy.signedPage(page)
         let requestPostID = try TiebaRequestValuePolicy.signedIdentifier(postID)
         let requestSubpostID = try TiebaRequestValuePolicy.signedIdentifier(subpostID)
@@ -606,10 +606,37 @@ extension TiebaAPI {
            response.data.post.author.id > 0 {
             usersByID[response.data.post.author.id] = response.data.post.author
         }
-        // Keep the service page cardinality intact. The presentation layer
-        // applies the current blocklist after using this raw count to decide
-        // whether the next page may exist.
-        return protos.map { PostMapper.subpost($0, usersByID: usersByID) }
+        let page = response.data.page
+        // Preserve the server's paging metadata. Page size is not configurable
+        // for pb/floor, so the UI must not infer continuation from item count.
+        return SubpostPage(
+            subposts: protos.map { PostMapper.subpost($0, usersByID: usersByID) },
+            currentPage: Int(page.currentPage),
+            totalPage: Int(page.totalPage),
+            hasMore: SubpostPageMetadataPolicy.hasMore(
+                currentPage: Int(page.currentPage),
+                totalPage: Int(page.totalPage),
+                serverHasMore: page.hasMore_p != 0
+            )
+        )
+    }
+
+    func subposts(
+        account: Account?,
+        threadID: Int64,
+        postID: UInt64,
+        forumID: Int64,
+        page: Int,
+        subpostID: UInt64 = 0
+    ) async throws -> [Subpost] {
+        try await subpostPage(
+            account: account,
+            threadID: threadID,
+            postID: postID,
+            forumID: forumID,
+            page: page,
+            subpostID: subpostID
+        ).subposts
     }
 
     static func shouldFallbackFromForumProtobuf(_ error: Error) -> Bool {
