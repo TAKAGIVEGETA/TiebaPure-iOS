@@ -3374,88 +3374,39 @@ final class TiebaPureSmokeTests: XCTestCase {
         )
     }
 
-    func testSubpostRightSwipeDismissPolicyAcceptsOnlyIntentionalRightSwipes() {
-        XCTAssertTrue(SubpostRightSwipeDismissPolicy.shouldBegin(
-            translation: CGSize(width: 32, height: 8)
-        ))
-        XCTAssertFalse(SubpostRightSwipeDismissPolicy.shouldBegin(
-            translation: CGSize(width: -32, height: 0)
-        ))
-        XCTAssertFalse(SubpostRightSwipeDismissPolicy.shouldBegin(
-            translation: CGSize(width: 20, height: 40)
-        ))
-        XCTAssertEqual(
-            SubpostRightSwipeDismissPolicy.verticalOffset(
-                translationX: 120,
-                containerHeight: 800
-            ),
-            120
-        )
-        XCTAssertEqual(
-            SubpostRightSwipeDismissPolicy.verticalOffset(
-                translationX: 800,
-                containerHeight: 800
-            ),
-            576
-        )
-        XCTAssertEqual(
-            SubpostRightSwipeDismissPolicy.predictedTranslation(
-                translationX: 40,
-                velocityX: 1_000
-            ),
-            220
-        )
-        XCTAssertTrue(SubpostRightSwipeDismissPolicy.shouldFinish(
-            translationX: 120,
-            predictedTranslationX: 120,
+    func testSubpostSheetEdgeDismissRequiresLeadingEdgeAndHorizontalIntent() {
+        XCTAssertTrue(SubpostSheetEdgeDismissPolicy.shouldDismiss(
+            startLocation: CGPoint(x: 20, y: 200),
+            translation: CGSize(width: 120, height: 20),
+            predictedEndTranslation: CGSize(width: 150, height: 24),
             containerWidth: 390
         ))
-        XCTAssertTrue(SubpostRightSwipeDismissPolicy.shouldFinish(
-            translationX: 40,
-            predictedTranslationX: 260,
+        XCTAssertFalse(SubpostSheetEdgeDismissPolicy.shouldDismiss(
+            startLocation: CGPoint(x: 100, y: 200),
+            translation: CGSize(width: 120, height: 20),
+            predictedEndTranslation: CGSize(width: 150, height: 24),
             containerWidth: 390
         ))
-        XCTAssertFalse(SubpostRightSwipeDismissPolicy.shouldFinish(
-            translationX: 40,
-            predictedTranslationX: 100,
+        XCTAssertFalse(SubpostSheetEdgeDismissPolicy.shouldDismiss(
+            startLocation: CGPoint(x: 20, y: 200),
+            translation: CGSize(width: 40, height: 120),
+            predictedEndTranslation: CGSize(width: 80, height: 180),
             containerWidth: 390
         ))
     }
 
-    func testSubpostPullDownDismissRequiresContentToStartAtTop() {
-        XCTAssertTrue(SubpostPullDownDismissPolicy.shouldBegin(
-            translation: CGSize(width: 8, height: 40),
-            isContentAtTop: true
+    func testSubpostSheetEdgeDismissAcceptsPredictedCommitDistance() {
+        XCTAssertTrue(SubpostSheetEdgeDismissPolicy.shouldDismiss(
+            startLocation: CGPoint(x: 20, y: 200),
+            translation: CGSize(width: 40, height: 4),
+            predictedEndTranslation: CGSize(width: 110, height: 8),
+            containerWidth: 390
         ))
-        XCTAssertFalse(SubpostPullDownDismissPolicy.shouldBegin(
-            translation: CGSize(width: 8, height: 40),
-            isContentAtTop: false
-        ))
-        XCTAssertFalse(SubpostPullDownDismissPolicy.shouldBegin(
-            translation: CGSize(width: 40, height: 20),
-            isContentAtTop: true
-        ))
-        XCTAssertEqual(
-            SubpostPullDownDismissPolicy.verticalOffset(
-                translationY: 160,
-                containerHeight: 800
-            ),
-            160
-        )
-        XCTAssertTrue(SubpostPullDownDismissPolicy.shouldFinish(
-            translationY: 160,
-            predictedTranslationY: 160,
-            containerHeight: 800
-        ))
-        XCTAssertTrue(SubpostPullDownDismissPolicy.shouldFinish(
-            translationY: 48,
-            predictedTranslationY: 260,
-            containerHeight: 800
-        ))
-        XCTAssertFalse(SubpostPullDownDismissPolicy.shouldFinish(
-            translationY: 48,
-            predictedTranslationY: 100,
-            containerHeight: 800
+        XCTAssertFalse(SubpostSheetEdgeDismissPolicy.shouldDismiss(
+            startLocation: CGPoint(x: 20, y: 200),
+            translation: CGSize(width: 40, height: 4),
+            predictedEndTranslation: CGSize(width: 80, height: 8),
+            containerWidth: 390
         ))
     }
 

@@ -4137,18 +4137,7 @@ final class TiebaPureUITests: XCTestCase {
                 1,
                 "任一时刻只能存在一层楼中楼"
             )
-            let swipeStart = app.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.35, dy: 0.45)
-            )
-            let swipeEnd = app.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.88, dy: 0.45)
-            )
-            swipeStart.press(
-                forDuration: 0.05,
-                thenDragTo: swipeEnd,
-                withVelocity: 300,
-                thenHoldForDuration: 0.4
-            )
+            subpostDismissSwipeRight(in: app, y: 0.45)
 
             let dismissed = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "exists == false"),
@@ -6307,9 +6296,14 @@ final class TiebaPureUITests: XCTestCase {
     }
 
     private func subpostDismissSwipeRight(in app: XCUIApplication, y: CGFloat = 0.38) {
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: y))
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: y))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: y))
-        start.press(forDuration: 0.05, thenDragTo: end)
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: end,
+            withVelocity: 300,
+            thenHoldForDuration: 0.4
+        )
     }
 
     private func visibleThreadInlineImage(

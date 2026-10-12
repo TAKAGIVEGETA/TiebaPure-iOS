@@ -367,7 +367,6 @@ struct ThreadDetailView: View {
                 onInteractiveDismiss: { selectedSubpostPost = nil }
             )
             .environmentObject(environment)
-            .subpostInteractivePresentation()
         } else {
             ReaderStateView.error(message: "缺少贴吧 ID，无法加载楼中楼。")
                 .padding()
@@ -2835,17 +2834,6 @@ private struct SubpostListSheet: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: SubpostSheetScrollTopPreferenceKey.self,
-                                    value: Optional(proxy.frame(
-                                        in: .named(SubpostSheetScrollCoordinateSpace.name)
-                                    ).minY)
-                                )
-                            }
-                            .frame(height: 0)
-                            .accessibilityHidden(true)
-
                             ReaderCard(
                                 showsDivider: false,
                                 contentBottomPadding: ThreadPostMetadataPlacement.standaloneReply.cardBottomPadding
@@ -2952,8 +2940,6 @@ private struct SubpostListSheet: View {
                         }
                         .readableWidth()
                     }
-                    .coordinateSpace(name: SubpostSheetScrollCoordinateSpace.name)
-                    .subpostSheetLegacyScrollTelemetry()
                     .background(TiebaPureTheme.ColorToken.readerGroupedBackground)
                 }
                 }
@@ -3436,21 +3422,5 @@ enum SubpostSheetTitle {
     static func text(floor: Int, count: Int) -> String {
         let floorText = floor > 0 ? "\(floor)楼" : "本楼"
         return "\(floorText)的回复(\(max(count, 0))条)"
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func subpostInteractivePresentation() -> some View {
-        if #available(iOS 16.4, *) {
-            presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
-                .presentationBackground(.clear)
-                .interactiveDismissDisabled()
-        } else {
-            presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
-                .interactiveDismissDisabled()
-        }
     }
 }
