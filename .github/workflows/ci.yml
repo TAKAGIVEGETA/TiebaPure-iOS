@@ -82,6 +82,7 @@ jobs:
             -only-testing:TiebaPureUITests/TiebaPureUITests/testHomeTabReselectFromSearchOnlyReturnsToFeed \
             -only-testing:TiebaPureUITests/TiebaPureUITests/testHomeTabReselectDuringInFlightRefreshReturnsToTop \
             -only-testing:TiebaPureUITests/TiebaPureUITests/testSearchResultRoutesToMatchedReply \
+            -only-testing:TiebaPureUITests/TiebaPureUITests/testSearchThreadForumThreadNavigationStaysResponsive \
             -only-testing:TiebaPureUITests/TiebaPureUITests/testForumLatestMenuSwitchesReplyPublishAndFeaturedCategories \
             -only-testing:TiebaPureUITests/TiebaPureUITests/testLoggedInUserCanToggleProfileFollowState \
             -only-testing:TiebaPureUITests/TiebaPureUITests/testOwnProfileFollowingCountTracksNestedUnfollow \
