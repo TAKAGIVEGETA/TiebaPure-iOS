@@ -130,3 +130,33 @@ jobs:
           test -f "$APP/SwiftProtobuf-Apache-2.0.txt"
           grep -Fq 'Apache License' "$APP/SwiftProtobuf-Apache-2.0.txt"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CADisableMinimumFrameDurationOnPhone' "$APP/Info.plist")" = true
+
+  build-unsigned-ipa:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            export HOMEBREW_NO_AUTO_UPDATE=1
+            export HOMEBREW_NO_INSTALL_CLEANUP=1
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Package unsigned IPA
+        run: |
+          ipa="$(./scripts/package-unsigned-ipa.sh)"
+          test -f "$ipa"
+          echo "IPA_PATH=$ipa" >> "$GITHUB_ENV"
+        env:
+          TIEBAPURE_DERIVED_DATA: $DERIVED_DATA
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: TiebaPure-unsigned-ipa
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
