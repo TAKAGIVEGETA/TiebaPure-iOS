@@ -45,7 +45,16 @@ struct HomeView: View {
                 placeholder
                     .navigationDestination(isPresented: splitSearchIsActive) {
                         if let activeSearch {
-                            SearchResultsView(account: account, scope: .global, initialKeyword: activeSearch.keyword)
+                            SearchResultsView(
+                                account: account,
+                                scope: .global,
+                                initialKeyword: activeSearch.keyword,
+                                openThreadInParent: openSearchThread,
+                                openForumInParent: openForum,
+                                openUserInParent: { user in
+                                    openUser(user, sourceThreadID: nil)
+                                }
+                            )
                                 .interactiveNavigationPopStateSync {
                                     self.activeSearch = nil
                                 }
@@ -112,7 +121,16 @@ struct HomeView: View {
         }
         .navigationDestination(isPresented: searchIsActive) {
             if let activeSearch {
-                SearchResultsView(account: account, scope: .global, initialKeyword: activeSearch.keyword)
+                SearchResultsView(
+                    account: account,
+                    scope: .global,
+                    initialKeyword: activeSearch.keyword,
+                    openThreadInParent: openSearchThread,
+                    openForumInParent: openForum,
+                    openUserInParent: { user in
+                        openUser(user, sourceThreadID: nil)
+                    }
+                )
                     .interactiveNavigationPopStateSync {
                         self.activeSearch = nil
                     }
@@ -294,6 +312,12 @@ struct HomeView: View {
         } else {
             openThreadInCompactStack(route)
         }
+    }
+
+    private func openSearchThread(_ route: SearchThreadRoute) {
+        openThreadFromNestedForum(
+            HomeSearchThreadRoutingPolicy.route(from: route)
+        )
     }
 
     private func openForum(_ forum: Forum) {
@@ -806,6 +830,16 @@ enum HomeNavigationRoute: Hashable {
             name: forum.name,
             displayName: forum.displayName,
             avatarURL: forum.avatarURL
+        )
+    }
+}
+
+enum HomeSearchThreadRoutingPolicy {
+    static func route(from route: SearchThreadRoute) -> ReaderSplitThreadRoute {
+        ReaderSplitThreadRoute(
+            threadID: route.threadID,
+            forumID: route.forumID,
+            initialPostID: route.postID
         )
     }
 }

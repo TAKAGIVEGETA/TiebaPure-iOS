@@ -99,6 +99,43 @@ final class HomeNavigationTests: XCTestCase {
         )
     }
 
+    func testSearchForumThreadPathIsOwnedByTheSameTypedPath() {
+        let searchThread = SearchThreadRoute(threadID: 1001, forumID: 101, postID: 2002)
+        let forum = Forum(
+            id: 101,
+            name: "test",
+            displayName: "test forum",
+            avatarURL: nil,
+            memberCount: 0,
+            threadCount: 0
+        )
+        let forumThread = ReaderSplitThreadRoute(threadID: 1101, forumID: 101)
+
+        var path = HomeNavigationPathPolicy.pushing(
+            .thread(HomeSearchThreadRoutingPolicy.route(from: searchThread)),
+            onto: []
+        )
+        path = HomeNavigationPathPolicy.pushing(.fromForum(forum), onto: path)
+        path = HomeNavigationPathPolicy.pushing(.thread(forumThread), onto: path)
+
+        XCTAssertEqual(
+            path,
+            [
+                .thread(ReaderSplitThreadRoute(
+                    threadID: 1001,
+                    forumID: 101,
+                    initialPostID: 2002
+                )),
+                .fromForum(forum),
+                .thread(forumThread)
+            ]
+        )
+        XCTAssertEqual(
+            HomeNavigationPathPolicy.removingCurrent(.thread(forumThread), from: path),
+            Array(path.dropLast())
+        )
+    }
+
     func testInheritedReaderHandlerDoesNotEscapeCompactLocalStack() {
         XCTAssertEqual(
             ForumThreadsOpenRoutingPolicy.destination(

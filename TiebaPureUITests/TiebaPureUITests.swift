@@ -2926,6 +2926,29 @@ final class TiebaPureUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["首页"].waitForExistence(timeout: 5))
     }
 
+    func testSearchThreadForumThreadNavigationStaysResponsive() {
+        let app = launchApp()
+        let searchField = openGlobalSearch(in: app)
+        searchField.typeText("iPhone")
+        searchField.typeText("\n")
+
+        let searchResult = threadRows(in: app).firstMatch
+        XCTAssertTrue(searchResult.waitForExistence(timeout: 10))
+        app.descendants(matching: .any).matching(identifier: "thread-open-area")
+            .firstMatch
+            .tap()
+        XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 8))
+
+        let forumTitle = app.buttons["测试吧"].firstMatch
+        XCTAssertTrue(forumTitle.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(forumTitle, expected: true, timeout: 5))
+        forumTitle.tap()
+        XCTAssertTrue(app.navigationBars["测试吧"].waitForExistence(timeout: 8))
+
+        openFirstThread(in: app)
+        XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 8))
+    }
+
     func testForumUserProfileRightSwipeReturnsOnlyToForum() {
         let app = launchApp()
         rootTab("进吧", in: app).tap()
