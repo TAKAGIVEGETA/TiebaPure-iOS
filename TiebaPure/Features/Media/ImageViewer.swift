@@ -1571,7 +1571,7 @@ final class ImagePreviewHeroProxyView: UIView {
         isUserInteractionEnabled = false
         accessibilityElementsHidden = true
 
-        imageView.image = image
+        imageView.image = image.images?.first ?? image
         // The outer frame and the normalized center crop are animated together
         // by the hero animator. `scaleToFill` is intentional here:
         // `contentsRect` already has the exact aspect ratio of the frame, so
@@ -2470,7 +2470,7 @@ private struct FullScreenImageItem: Identifiable {
         originalURL = sources.originalURL
         downloadURL = sources.downloadURL
         imageAspectRatio = CGFloat(image.aspectRatio)
-        self.placeholderImage = placeholderImage
+        self.placeholderImage = placeholderImage.flatMap { $0.images?.first ?? $0 }
     }
 
     init(url: URL?, index: Int) {
@@ -2877,12 +2877,14 @@ private final class FullScreenZoomImageController: UIViewController,
         placeholderImageView.contentMode = .scaleAspectFit
         placeholderImageView.clipsToBounds = true
         placeholderImageView.backgroundColor = .clear
+        placeholderImageView.isUserInteractionEnabled = false
         placeholderImageView.isHidden = placeholderImage == nil
         zoomContentView.addSubview(placeholderImageView)
 
         resolvedImageView.contentMode = .scaleAspectFit
         resolvedImageView.clipsToBounds = true
         resolvedImageView.backgroundColor = .clear
+        resolvedImageView.isUserInteractionEnabled = false
         resolvedImageView.alpha = placeholderImage == nil ? 1 : 0
         zoomContentView.addSubview(resolvedImageView)
 
@@ -3894,6 +3896,11 @@ struct FullScreenImageView: View {
         .accessibilityAction(.escape) {
             close()
         }
+        .overlay(alignment: .topTrailing) {
+            closeButton
+                .padding(.horizontal, TiebaPureTheme.Spacing.md)
+                .padding(.vertical, TiebaPureTheme.Spacing.sm)
+        }
         .alert(item: $downloadNotice) { notice in
             Alert(
                 title: Text(notice.title),
@@ -3921,6 +3928,21 @@ struct FullScreenImageView: View {
         } else {
             dismiss()
         }
+    }
+
+    private var closeButton: some View {
+        Button(action: close) {
+            Image(systemName: "xmark")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(.black.opacity(0.55), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(minWidth: 44, minHeight: 44)
+        .accessibilityIdentifier("close-full-screen-image")
+        .accessibilityLabel("关闭图片预览")
     }
 
     private func zoomableImage(
