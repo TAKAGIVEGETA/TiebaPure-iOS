@@ -1526,8 +1526,7 @@ final class TiebaPureSmokeTests: XCTestCase {
             didFinishPresentation: true,
             previewURL: preview,
             originalURL: original,
-            originalState: .available,
-            isAnimatedImage: false
+            originalState: .available
         ))
         XCTAssertFalse(FullScreenImageResolutionUpgradePolicy.shouldUpgrade(
             previewPixelSize: CGSize(width: 768, height: 3_072),
@@ -1537,8 +1536,7 @@ final class TiebaPureSmokeTests: XCTestCase {
             didFinishPresentation: true,
             previewURL: preview,
             originalURL: original,
-            originalState: .available,
-            isAnimatedImage: false
+            originalState: .available
         ))
         XCTAssertFalse(FullScreenImageResolutionUpgradePolicy.shouldUpgrade(
             previewPixelSize: CGSize(width: 320, height: 960),
@@ -1548,8 +1546,7 @@ final class TiebaPureSmokeTests: XCTestCase {
             didFinishPresentation: true,
             previewURL: preview,
             originalURL: original,
-            originalState: .available,
-            isAnimatedImage: false
+            originalState: .available
         ))
         XCTAssertFalse(FullScreenImageResolutionUpgradePolicy.shouldUpgrade(
             previewPixelSize: CGSize(width: 320, height: 960),
@@ -1559,19 +1556,7 @@ final class TiebaPureSmokeTests: XCTestCase {
             didFinishPresentation: true,
             previewURL: original,
             originalURL: original,
-            originalState: .available,
-            isAnimatedImage: false
-        ))
-        XCTAssertFalse(FullScreenImageResolutionUpgradePolicy.shouldUpgrade(
-            previewPixelSize: CGSize(width: 320, height: 960),
-            targetPixelSize: 3_072,
-            pageIndex: 0,
-            currentIndex: 0,
-            didFinishPresentation: true,
-            previewURL: preview,
-            originalURL: original,
-            originalState: .available,
-            isAnimatedImage: true
+            originalState: .available
         ))
     }
 

@@ -2587,14 +2587,9 @@ enum FullScreenImageResolutionUpgradePolicy {
         didFinishPresentation: Bool,
         previewURL: URL?,
         originalURL: URL?,
-        originalState: FullScreenOriginalImageLoadState,
-        isAnimatedImage: Bool
+        originalState: FullScreenOriginalImageLoadState
     ) -> Bool {
-        // Animated sources decode one bitmap per frame. Promoting the same GIF
-        // to the 4096px original tier multiplies that work and can freeze the
-        // preview before the user can dismiss it.
-        guard isAnimatedImage == false,
-              didFinishPresentation,
+        guard didFinishPresentation,
               pageIndex == currentIndex,
               originalState == .available,
               let previewURL,
@@ -3407,8 +3402,7 @@ private final class FullScreenZoomImageController: UIViewController,
             didFinishPresentation: transitionState.didFinishPresentation,
             previewURL: primaryURL,
             originalURL: originalURL,
-            originalState: originalLoadState,
-            isAnimatedImage: resolvedImage.images?.isEmpty == false
+            originalState: originalLoadState
         ) else { return }
         startOriginalImageLoading()
     }
