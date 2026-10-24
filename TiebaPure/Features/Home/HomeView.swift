@@ -109,7 +109,14 @@ struct HomeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    activeSearch = SearchRoute(keyword: "")
+                    if usesSplitDetailLayout {
+                        activeSearch = SearchRoute(keyword: "")
+                    } else {
+                        navigationPath = HomeNavigationPathPolicy.pushing(
+                            .search(SearchRoute(keyword: "")),
+                            onto: navigationPath
+                        )
+                    }
                 } label: {
                     Image(systemName: "magnifyingglass")
                 }
@@ -138,6 +145,18 @@ struct HomeView: View {
         }
         .navigationDestination(for: HomeNavigationRoute.self) { route in
             switch route {
+            case let .search(route):
+                SearchResultsView(
+                    account: account,
+                    scope: .global,
+                    initialKeyword: route.keyword,
+                    openThreadInParent: openSearchThread,
+                    openForumInParent: openForum,
+                    openUserInParent: { user in
+                        openUser(user, sourceThreadID: nil)
+                    }
+                )
+                .interactiveNavigationPopStateSync {}
             case let .thread(threadRoute):
                 ThreadDetailView(
                     account: account,
@@ -820,6 +839,7 @@ enum HomeMediaActionPolicy {
 }
 
 enum HomeNavigationRoute: Hashable {
+    case search(SearchRoute)
     case thread(ReaderSplitThreadRoute)
     case forum(id: Int64, name: String, displayName: String, avatarURL: URL?)
     case user(user: UserSummary, sourceThreadID: Int64?)

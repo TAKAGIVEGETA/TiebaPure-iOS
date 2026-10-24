@@ -136,6 +136,30 @@ final class HomeNavigationTests: XCTestCase {
         )
     }
 
+    func testSearchPageAndThreadAreOwnedByTheSameTypedPath() {
+        let search = SearchRoute(keyword: "iPhone")
+        let thread = ReaderSplitThreadRoute(
+            threadID: 1001,
+            forumID: 101,
+            initialPostID: 2002
+        )
+
+        var path: [HomeNavigationRoute] = [.search(search)]
+        path = HomeNavigationPathPolicy.pushing(.thread(thread), onto: path)
+
+        XCTAssertEqual(
+            path,
+            [
+                .search(search),
+                .thread(thread)
+            ]
+        )
+        XCTAssertEqual(
+            HomeNavigationPathPolicy.removingCurrent(.thread(thread), from: path),
+            [.search(search)]
+        )
+    }
+
     func testInheritedReaderHandlerDoesNotEscapeCompactLocalStack() {
         XCTAssertEqual(
             ForumThreadsOpenRoutingPolicy.destination(
