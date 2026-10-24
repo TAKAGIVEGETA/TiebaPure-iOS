@@ -1,0 +1,48 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+  DERIVED_DATA: /tmp/TiebaPureDerivedData
+
+jobs:
+  build-ipa:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            export HOMEBREW_NO_AUTO_UPDATE=1
+            export HOMEBREW_NO_INSTALL_CLEANUP=1
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Package unsigned IPA
+        run: |
+          ipa="$(./scripts/package-unsigned-ipa.sh)"
+          test -f "$ipa"
+          echo "IPA_PATH=$ipa" >> "$GITHUB_ENV"
+        env:
+          TIEBAPURE_DERIVED_DATA: $DERIVED_DATA
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: TiebaPure-unsigned-ipa
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error

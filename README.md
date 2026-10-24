@@ -1,6 +1,6 @@
 # TiebaPure-iOS
 
-[![iOS CI](https://github.com/infinityf4p/TiebaPure-iOS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/infinityf4p/TiebaPure-iOS/actions/workflows/ci.yml?query=branch%3Amain)
+[![Build iOS IPA](https://github.com/TAKAGIVEGETA/TiebaPure-iOS/actions/workflows/build-ipa.yml/badge.svg?branch=main)](https://github.com/TAKAGIVEGETA/TiebaPure-iOS/actions/workflows/build-ipa.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/infinityf4p/TiebaPure-iOS)](https://github.com/infinityf4p/TiebaPure-iOS/releases/latest)
 
