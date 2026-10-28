@@ -150,6 +150,26 @@ enum TiebaEmoticon {
         replaceTokens(in: text) { displayText(for: $0) }
     }
 
+    static func webSubmissionText(_ text: String) -> String {
+        guard let expression = tokenExpression else { return text }
+        let nsText = text as NSString
+        let matches = expression.matches(
+            in: text,
+            range: NSRange(location: 0, length: nsText.length)
+        )
+        let result = NSMutableString(string: text)
+        // Replace backwards so earlier UTF-16 ranges remain valid.
+        for match in matches.reversed() {
+            let range = match.range(at: 1)
+            guard range.location != NSNotFound,
+                  let imageName = imageName(for: nsText.substring(with: range)),
+                  let name = namesByImageName[imageName] else { continue }
+            // The web posting protocol uses (#name), unlike the app's #(name).
+            result.replaceCharacters(in: match.range, with: "(#\(name))")
+        }
+        return result as String
+    }
+
     static func blocks(from text: String) -> [ContentBlock] {
         guard text.isEmpty == false, let expression = tokenExpression else { return [] }
 

@@ -679,7 +679,7 @@ enum TiebaContentSubmissionRequestFactory {
             "kw": request.target.forumName,
             "tbs": tbs,
             "title": request.title,
-            "content": request.body,
+            "content": TiebaEmoticon.webSubmissionText(request.body),
             "nick_name": account.displayName.isEmpty ? account.name : account.displayName,
             "bsk": String(Int64(now.timeIntervalSince1970 * 1_000))
         ]
@@ -872,6 +872,7 @@ enum TiebaContentSubmissionRequestFactory {
         _ body: String,
         target: ContentSubmissionTarget
     ) -> String {
+        let body = TiebaEmoticon.webSubmissionText(body)
         guard target.kind == .subpostReply,
               let displayName = protocolReplyComponent(target.replyUserDisplayName) else {
             return body

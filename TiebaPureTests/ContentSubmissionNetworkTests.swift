@@ -3,6 +3,54 @@ import XCTest
 @testable import TiebaPure
 
 final class ContentSubmissionRequestFactoryTests: XCTestCase {
+    func testWebReplyFieldsEncodeEveryConsecutiveEmoticonForAllReplyTargets() throws {
+        let bodies = [
+            ("#(怒) #(怒) #(怒)", "(#怒) (#怒) (#怒)"),
+            ("#(怒)#(怒)#(怒)#(怒)", "(#怒)(#怒)(#怒)(#怒)"),
+            ("😀 前文 #(怒)\n#(滑稽)\t#(呼~) 后文  ", "😀 前文 (#怒)\n(#滑稽)\t(#呼~) 后文  "),
+            ("(#怒) [怒] #(不存在) #(pic,id,1,1)", "(#怒) [怒] #(不存在) #(pic,id,1,1)")
+        ]
+        for kind in [ContentSubmissionKind.threadReply, .postReply, .subpostReply] {
+            for (body, expected) in bodies {
+                let fields = try TiebaContentSubmissionRequestFactory.webReplyFields(
+                    account: Self.account,
+                    tbs: "fresh-tbs",
+                    request: ContentSubmissionRequest(
+                        target: Self.target(
+                            kind: kind,
+                            parentPostID: 2002,
+                            subpostID: 3002,
+                            replyUserID: 43
+                        ),
+                        title: "",
+                        body: body,
+                        images: []
+                    ),
+                    uploadedImageInfo: "",
+                    timestamp: Self.timestamp
+                )
+                let prefix = kind == .subpostReply ? "回复 被回复用户 : " : ""
+                XCTAssertEqual(fields["co"], prefix + expected, "\(kind): \(body)")
+            }
+        }
+    }
+
+    func testWebThreadFieldsEncodeConsecutiveEmoticonsWithoutChangingTitle() throws {
+        let fields = try TiebaContentSubmissionRequestFactory.webThreadFields(
+            account: Self.account,
+            tbs: "fresh-tbs",
+            request: ContentSubmissionRequest(
+                target: Self.target(kind: .newThread),
+                title: "标题 #(怒)",
+                body: "#(怒)#(怒)#(怒)",
+                images: []
+            ),
+            now: Self.now
+        )
+        XCTAssertEqual(fields["title"], "标题 #(怒)")
+        XCTAssertEqual(fields["content"], "(#怒)(#怒)(#怒)")
+    }
+
     func testThreadReplyWebFieldsOmitEveryFloorTargetAndPreserveImageInfo() throws {
         let fields = try TiebaContentSubmissionRequestFactory.webReplyFields(
             account: Self.account,
