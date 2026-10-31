@@ -40,27 +40,9 @@ enum PersistenceDiagnostics {
         subsystem: "dev.infinityf4p.tiebapure",
         category: "Persistence"
     )
-    private static let recentLock = NSLock()
-    private static var recentReportsValue: [String] = []
 
     static func report(_ error: Error, operation: String) {
-        appendRecent("\(operation): \(String(describing: error))")
         logger.error("\(operation, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-    }
-
-    static func recentReports() -> [String] {
-        recentLock.lock()
-        defer { recentLock.unlock() }
-        return recentReportsValue
-    }
-
-    private static func appendRecent(_ report: String) {
-        recentLock.lock()
-        defer { recentLock.unlock() }
-        recentReportsValue.append(report)
-        if recentReportsValue.count > 30 {
-            recentReportsValue.removeFirst(recentReportsValue.count - 30)
-        }
     }
 }
 

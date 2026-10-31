@@ -5,46 +5,6 @@ import SwiftData
 // build their own container from `models` with an in-memory configuration.
 @available(iOS 17.0, *)
 enum AppModelContainer {
-    struct Diagnostics: Sendable {
-        let timestamp: Date
-        let defaultURL: URL?
-        let savedURL: URL?
-        let openedURL: URL?
-        let usedSavedURL: Bool
-        let errorText: String?
-        let homePath: String
-        let applicationSupportURL: URL?
-        let storeExists: Bool
-        let storeSize: Int?
-        let storeIsWritable: Bool
-
-        func summary() -> String {
-            [
-                "timestamp=\(timestamp)",
-                "home=\(homePath)",
-                "applicationSupport=\(applicationSupportURL?.path ?? "-")",
-                "default=\(defaultURL?.path ?? "-")",
-                "saved=\(savedURL?.path ?? "-")",
-                "opened=\(openedURL?.path ?? "-")",
-                "usedSaved=\(usedSavedURL)",
-                "storeExists=\(storeExists)",
-                "storeSize=\(storeSize.map(String.init) ?? "-")",
-                "storeWritable=\(storeIsWritable)",
-                "availability=\(sharedAvailability == .available ? "available" : "unavailable")",
-                "error=\(errorText ?? "-")",
-            ].joined(separator: "\n")
-        }
-    }
-
-    private static let diagnosticsLock = NSLock()
-    private static var diagnosticsValue: Diagnostics?
-
-    static var diagnostics: Diagnostics? {
-        diagnosticsLock.lock()
-        defer { diagnosticsLock.unlock() }
-        return diagnosticsValue
-    }
-
     struct Resolution {
         let container: ModelContainer
         let availability: PersistenceAvailability
@@ -87,65 +47,11 @@ enum AppModelContainer {
 
     private static func makePersistentContainer(schema: Schema) throws -> ModelContainer {
         let defaultURL = ModelConfiguration(schema: schema).url
-        do {
-            let container = try openContainer(at: defaultURL, schema: schema)
-            recordDiagnostics(
-                defaultURL: defaultURL,
-                savedURL: nil,
-                openedURL: defaultURL,
-                usedSavedURL: false,
-                errorText: nil
-            )
-            return container
-        } catch {
-            recordDiagnostics(
-                defaultURL: defaultURL,
-                savedURL: nil,
-                openedURL: nil,
-                usedSavedURL: false,
-                errorText: String(describing: error)
-            )
-            throw error
-        }
-    }
-
-    private static func recordDiagnostics(
-        defaultURL: URL,
-        savedURL: URL?,
-        openedURL: URL?,
-        usedSavedURL: Bool,
-        errorText: String?
-    ) {
-        let diagnostics = Diagnostics(
-            timestamp: Date(),
-            defaultURL: defaultURL,
-                savedURL: nil,
-            openedURL: openedURL,
-            usedSavedURL: usedSavedURL,
-            errorText: errorText,
-            homePath: NSHomeDirectory(),
-            applicationSupportURL: FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first,
-            storeExists: openedURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
-            storeSize: openedURL.flatMap {
-                (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? Int
-            },
-            storeIsWritable: openedURL.map { FileManager.default.isWritableFile(atPath: $0.path) } ?? false
-        )
-
-        diagnosticsLock.lock()
-        diagnosticsValue = diagnostics
-        diagnosticsLock.unlock()
-    }
-
-    private static func openContainer(at url: URL, schema: Schema) throws -> ModelContainer {
-        try ModelContainer(
+        return try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(
                 schema: schema,
-                url: url,
+                url: defaultURL,
                 cloudKitDatabase: .none
             )
         )
