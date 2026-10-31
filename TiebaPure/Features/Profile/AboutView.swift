@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct AboutView: View {
     private let sourceURL = URL(string: "https://github.com/infinityf4p/TiebaPure-iOS")!
@@ -45,10 +46,42 @@ struct AboutView: View {
                     LabeledContent("SwiftProtobuf", value: "Apache-2.0")
                 }
             }
+
+            if #available(iOS 17.0, *) {
+                Section("SwiftData 诊断") {
+                    Text(swiftDataDiagnosticsText)
+                        .font(.system(.footnote, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+
+                    Button {
+                        UIPasteboard.general.string = swiftDataDiagnosticsText
+                    } label: {
+                        Label("复制诊断", systemImage: "doc.on.doc")
+                    }
+                    .accessibilityIdentifier("copy-swiftdata-diagnostics")
+                }
+            }
         }
         .navigationTitle("关于 TiebaPure")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenInteractiveNavigationPop()
+    }
+
+    @available(iOS 17.0, *)
+    private var swiftDataDiagnosticsText: String {
+        var lines = [
+            AppModelContainer.diagnostics?.summary() ?? "SwiftData 尚未初始化"
+        ]
+
+        let reports = PersistenceDiagnostics.recentReports()
+        if reports.isEmpty {
+            lines.append("recentErrors=none")
+        } else {
+            lines.append("recentErrors:")
+            lines.append(contentsOf: reports)
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var versionText: String {

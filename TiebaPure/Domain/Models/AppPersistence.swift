@@ -7,6 +7,46 @@ import SwiftData
 enum AppModelContainer {
     private static let storeURLDefaultsKey = "dev.infinityf4p.tiebapure.swiftDataStoreURL"
 
+    struct Diagnostics: Sendable {
+        let timestamp: Date
+        let defaultURL: URL?
+        let savedURL: URL?
+        let openedURL: URL?
+        let usedSavedURL: Bool
+        let errorText: String?
+        let homePath: String
+        let applicationSupportURL: URL?
+        let storeExists: Bool
+        let storeSize: Int?
+        let storeIsWritable: Bool
+
+        func summary() -> String {
+            [
+                "timestamp=\(timestamp)",
+                "home=\(homePath)",
+                "applicationSupport=\(applicationSupportURL?.path ?? "-")",
+                "default=\(defaultURL?.path ?? "-")",
+                "saved=\(savedURL?.path ?? "-")",
+                "opened=\(openedURL?.path ?? "-")",
+                "usedSaved=\(usedSavedURL)",
+                "storeExists=\(storeExists)",
+                "storeSize=\(storeSize.map(String.init) ?? "-")",
+                "storeWritable=\(storeIsWritable)",
+                "availability=\(sharedAvailability == .available ? "available" : "unavailable")",
+                "error=\(errorText ?? "-")",
+            ].joined(separator: "\n")
+        }
+    }
+
+    private static let diagnosticsLock = NSLock()
+    private static var diagnosticsValue: Diagnostics?
+
+    static var diagnostics: Diagnostics? {
+        diagnosticsLock.lock()
+        defer { diagnosticsLock.unlock() }
+        return diagnosticsValue
+    }
+
     struct Resolution {
         let container: ModelContainer
         let availability: PersistenceAvailability
@@ -51,15 +91,82 @@ enum AppModelContainer {
         let defaultURL = ModelConfiguration(schema: schema).url
         let savedURL = savedStoreURL()
         do {
-            let container = try openContainer(at: savedURL ?? defaultURL, schema: schema)
-            UserDefaults.standard.set((savedURL ?? defaultURL).path, forKey: storeURLDefaultsKey)
+            let openedURL = savedURL ?? defaultURL
+            let container = try openContainer(at: openedURL, schema: schema)
+            recordDiagnostics(
+                defaultURL: defaultURL,
+                savedURL: savedURL,
+                openedURL: openedURL,
+                usedSavedURL: savedURL != nil,
+                errorText: nil
+            )
+            UserDefaults.standard.set(openedURL.path, forKey: storeURLDefaultsKey)
             return container
         } catch {
-            guard let savedURL, savedURL != defaultURL else { throw error }
-            let container = try openContainer(at: defaultURL, schema: schema)
-            UserDefaults.standard.set(defaultURL.path, forKey: storeURLDefaultsKey)
-            return container
+            guard let savedURL, savedURL != defaultURL else {
+                recordDiagnostics(
+                    defaultURL: defaultURL,
+                    savedURL: savedURL,
+                    openedURL: nil,
+                    usedSavedURL: savedURL != nil,
+                    errorText: String(describing: error)
+                )
+                throw error
+            }
+
+            do {
+                let container = try openContainer(at: defaultURL, schema: schema)
+                recordDiagnostics(
+                    defaultURL: defaultURL,
+                    savedURL: savedURL,
+                    openedURL: defaultURL,
+                    usedSavedURL: false,
+                    errorText: String(describing: error)
+                )
+                UserDefaults.standard.set(defaultURL.path, forKey: storeURLDefaultsKey)
+                return container
+            } catch {
+                recordDiagnostics(
+                    defaultURL: defaultURL,
+                    savedURL: savedURL,
+                    openedURL: nil,
+                    usedSavedURL: false,
+                    errorText: "saved: \(String(describing: error)); default: \(String(describing: error))"
+                )
+                throw error
+            }
         }
+    }
+
+    private static func recordDiagnostics(
+        defaultURL: URL,
+        savedURL: URL?,
+        openedURL: URL?,
+        usedSavedURL: Bool,
+        errorText: String?
+    ) {
+        let diagnostics = Diagnostics(
+            timestamp: Date(),
+            defaultURL: defaultURL,
+            savedURL: savedURL,
+            openedURL: openedURL,
+            usedSavedURL: usedSavedURL,
+            errorText: errorText,
+            homePath: NSHomeDirectory(),
+            applicationSupportURL: FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first,
+            storeExists: openedURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
+            storeSize: openedURL.flatMap {
+                (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? Int
+            },
+            storeIsWritable: openedURL.map { FileManager.default.isWritableFile(atPath: $0.path) } ?? false
+        )
+
+        diagnosticsLock.lock()
+        diagnosticsValue = diagnostics
+        diagnosticsLock.unlock()
     }
 
     private static func openContainer(at url: URL, schema: Schema) throws -> ModelContainer {
