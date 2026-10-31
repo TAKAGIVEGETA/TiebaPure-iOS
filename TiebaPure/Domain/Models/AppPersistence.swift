@@ -34,7 +34,11 @@ enum AppModelContainer {
                     let storeURL = ModelConfiguration(schema: schema).url
                     return try ModelContainer(
                         for: schema,
-                        configurations: ModelConfiguration(schema: schema, url: storeURL)
+                        configurations: ModelConfiguration(
+                            schema: schema,
+                            url: storeURL,
+                            cloudKitDatabase: .none
+                        )
                     )
                 },
                 fallback: {
