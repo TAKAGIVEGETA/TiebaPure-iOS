@@ -6,7 +6,6 @@ BUILD_DIR="$ROOT/build"
 PACKAGE_ROOT="$BUILD_DIR/unsigned-ipa"
 DERIVED_DATA="${TIEBAPURE_DERIVED_DATA:-/private/tmp/TiebaPurePackageDerivedData}"
 ARCHIVE_PATH="$PACKAGE_ROOT/TiebaPure.xcarchive"
-RESULT_PATH="$PACKAGE_ROOT/TiebaPure.xcresult"
 PAYLOAD_DIR="$PACKAGE_ROOT/Payload"
 APP_NAME="TiebaPure.app"
 OUTPUT="$BUILD_DIR/TiebaPure-unsigned.ipa"
@@ -56,10 +55,11 @@ else
 fi
 
 mkdir -p "$PACKAGE_ROOT"
-rm -rf "$ARCHIVE_PATH" "$RESULT_PATH" "$PAYLOAD_DIR"
+rm -rf "$ARCHIVE_PATH" "$PAYLOAD_DIR"
 mkdir -p "$PAYLOAD_DIR"
 
 xcodebuild \
+  -quiet \
   -project "$ROOT/TiebaPure.xcodeproj" \
   -scheme TiebaPure \
   -configuration Release \
@@ -67,7 +67,6 @@ xcodebuild \
   -destination "generic/platform=iOS" \
   -derivedDataPath "$DERIVED_DATA" \
   -archivePath "$ARCHIVE_PATH" \
-  -resultBundlePath "$RESULT_PATH" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY="" \

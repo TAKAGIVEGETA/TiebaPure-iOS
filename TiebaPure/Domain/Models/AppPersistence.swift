@@ -32,7 +32,7 @@ enum AppModelContainer {
             return try resolve(
                 persistent: {
                     let storeURL = defaultStoreURL()
-                    try ModelContainer(
+                    return try ModelContainer(
                         for: schema,
                         configurations: ModelConfiguration(schema: schema, url: storeURL)
                     )
