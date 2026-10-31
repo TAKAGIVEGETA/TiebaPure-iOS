@@ -33,7 +33,7 @@ enum AppModelContainer {
         do {
             return try resolve(
                 persistent: {
-                    makePersistentContainer(schema: schema)
+                    try makePersistentContainer(schema: schema)
                 },
                 fallback: {
                     try ModelContainer(
