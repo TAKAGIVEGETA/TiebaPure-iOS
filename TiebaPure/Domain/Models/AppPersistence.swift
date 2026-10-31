@@ -31,9 +31,10 @@ enum AppModelContainer {
         do {
             return try resolve(
                 persistent: {
+                    let storeURL = defaultStoreURL()
                     try ModelContainer(
                         for: schema,
-                        configurations: ModelConfiguration(schema: schema)
+                        configurations: ModelConfiguration(schema: schema, url: storeURL)
                     )
                 },
                 fallback: {
@@ -47,6 +48,27 @@ enum AppModelContainer {
             fatalError("ModelContainer creation failed: \(error)")
         }
     }()
+
+    private static func defaultStoreURL() -> URL {
+        guard let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            fatalError("Application Support directory is unavailable")
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: applicationSupport,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            fatalError("Application Support directory is unavailable: \(error)")
+        }
+
+        return applicationSupport
+            .appendingPathComponent("default.store", isDirectory: false)
+    }
 
     static let shared = sharedResolution.container
     static var sharedAvailability: PersistenceAvailability {
