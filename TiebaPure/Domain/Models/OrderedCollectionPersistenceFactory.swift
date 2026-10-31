@@ -182,6 +182,20 @@ struct OrderedCollectionPersistenceFactory {
                 return try resolve(manifest: manifest, manifestFile: manifestFile)
             }
             if hasFileBackendArtifacts {
+                if supportsSwiftData {
+                    let bundle = try makeSwiftDataBundle()
+                    guard bundle.isDurable else {
+                        throw OrderedCollectionPersistenceFactoryError.ambiguousBackendRecovery
+                    }
+                    let marker = try Self.requireDurableMarker(from: bundle)
+                    if let existingGeneration = try marker.loadGeneration() {
+                        let manifest = OrderedCollectionPersistenceManifest.initialSwiftDataBackend(
+                            destinationGeneration: existingGeneration
+                        )
+                        try manifestFile.replace(manifest)
+                        return bundle
+                    }
+                }
                 throw OrderedCollectionPersistenceFactoryError.ambiguousBackendRecovery
             }
             return try makeInitialBundle(manifestFile: manifestFile)
@@ -249,8 +263,16 @@ struct OrderedCollectionPersistenceFactory {
                 return bundle
             }
             let marker = try Self.requireDurableMarker(from: bundle)
-            guard try marker.loadGeneration() == nil else {
-                throw OrderedCollectionPersistenceFactoryError.ambiguousBackendRecovery
+            if let existingGeneration = try marker.loadGeneration() {
+                // LiveContainer can relaunch the guest with a different HOME
+                // while the SwiftData store remains in the shared app group.
+                // Adopting its marker is safe here because this path is only
+                // reached when no local file backend artifacts exist.
+                let manifest = OrderedCollectionPersistenceManifest.initialSwiftDataBackend(
+                    destinationGeneration: existingGeneration
+                )
+                try manifestFile.replace(manifest)
+                return bundle
             }
             let generation = UUID().uuidString
             try manifestFile.replace(.pendingSwiftDataActivation(

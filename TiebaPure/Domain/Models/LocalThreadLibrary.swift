@@ -566,6 +566,16 @@ final class FileThreadReadingPositionPersistence: ThreadReadingPositionPersisten
         return pendingState
     }
 
+    func adoptNativeSwiftData(
+        generationID: String,
+        now: Date
+    ) throws {
+        try stateFile.replace(.nativeSwiftData(
+            generationID: generationID,
+            now: now
+        ))
+    }
+
     func activateNativeSwiftData(
         pendingState: ThreadReadingPositionBackendState,
         now: Date
@@ -902,8 +912,15 @@ struct ThreadReadingPositionPersistenceFactory {
         guard destination.capability.isDurable else {
             throw ThreadReadingPositionPersistenceFactoryError.destinationIsNotDurable
         }
-        guard try destination.backendGenerationID() == nil else {
-            throw ThreadReadingPositionPersistenceFactoryError.markerMismatch
+        if let existingGeneration = try destination.backendGenerationID() {
+            // This occurs when LiveContainer relaunches the guest with another
+            // HOME while the SwiftData store remains shared. No local file
+            // backend state exists in this path, so adopt the shared marker.
+            try file.adoptNativeSwiftData(
+                generationID: existingGeneration,
+                now: now()
+            )
+            return destination
         }
         let generationID = UUID().uuidString.lowercased()
         let pendingState = try file.prepareNativeSwiftDataActivation(
@@ -922,6 +939,17 @@ struct ThreadReadingPositionPersistenceFactory {
         state: ThreadReadingPositionBackendState,
         file: FileThreadReadingPositionPersistence
     ) throws -> any ThreadReadingPositionPersistence {
+        if supportsSwiftData,
+           let destination = try makeSwiftData(),
+           destination.capability.isDurable,
+           let existingGeneration = try destination.backendGenerationID() {
+            try file.adoptNativeSwiftData(
+                generationID: existingGeneration,
+                now: now()
+            )
+            return destination
+        }
+
         switch state.migrationState {
         case .fileActive:
             guard supportsSwiftData else { return file }

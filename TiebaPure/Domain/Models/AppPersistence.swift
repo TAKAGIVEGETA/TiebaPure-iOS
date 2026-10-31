@@ -5,8 +5,6 @@ import SwiftData
 // build their own container from `models` with an in-memory configuration.
 @available(iOS 17.0, *)
 enum AppModelContainer {
-    private static let storeURLDefaultsKey = "dev.infinityf4p.tiebapure.swiftDataStoreURL"
-
     struct Diagnostics: Sendable {
         let timestamp: Date
         let defaultURL: URL?
@@ -89,52 +87,23 @@ enum AppModelContainer {
 
     private static func makePersistentContainer(schema: Schema) throws -> ModelContainer {
         let defaultURL = ModelConfiguration(schema: schema).url
-        let savedURL = savedStoreURL()
         do {
-            let openedURL = savedURL ?? defaultURL
-            let container = try openContainer(at: openedURL, schema: schema)
+            let container = try openContainer(at: defaultURL, schema: schema)
             recordDiagnostics(
                 defaultURL: defaultURL,
-                savedURL: savedURL,
-                openedURL: openedURL,
-                usedSavedURL: savedURL != nil,
+                openedURL: defaultURL,
+                usedSavedURL: false,
                 errorText: nil
             )
-            UserDefaults.standard.set(openedURL.path, forKey: storeURLDefaultsKey)
             return container
         } catch {
-            guard let savedURL, savedURL != defaultURL else {
-                recordDiagnostics(
-                    defaultURL: defaultURL,
-                    savedURL: savedURL,
-                    openedURL: nil,
-                    usedSavedURL: savedURL != nil,
-                    errorText: String(describing: error)
-                )
-                throw error
-            }
-
-            do {
-                let container = try openContainer(at: defaultURL, schema: schema)
-                recordDiagnostics(
-                    defaultURL: defaultURL,
-                    savedURL: savedURL,
-                    openedURL: defaultURL,
-                    usedSavedURL: false,
-                    errorText: String(describing: error)
-                )
-                UserDefaults.standard.set(defaultURL.path, forKey: storeURLDefaultsKey)
-                return container
-            } catch {
-                recordDiagnostics(
-                    defaultURL: defaultURL,
-                    savedURL: savedURL,
-                    openedURL: nil,
-                    usedSavedURL: false,
-                    errorText: "saved: \(String(describing: error)); default: \(String(describing: error))"
-                )
-                throw error
-            }
+            recordDiagnostics(
+                defaultURL: defaultURL,
+                openedURL: nil,
+                usedSavedURL: false,
+                errorText: String(describing: error)
+            )
+            throw error
         }
     }
 
@@ -148,7 +117,7 @@ enum AppModelContainer {
         let diagnostics = Diagnostics(
             timestamp: Date(),
             defaultURL: defaultURL,
-            savedURL: savedURL,
+                savedURL: nil,
             openedURL: openedURL,
             usedSavedURL: usedSavedURL,
             errorText: errorText,
@@ -178,15 +147,6 @@ enum AppModelContainer {
                 cloudKitDatabase: .none
             )
         )
-    }
-
-    private static func savedStoreURL() -> URL? {
-        guard let path = UserDefaults.standard.string(forKey: storeURLDefaultsKey),
-              path.isEmpty == false else {
-            return nil
-        }
-        let url = URL(fileURLWithPath: path)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     static let shared = sharedResolution.container

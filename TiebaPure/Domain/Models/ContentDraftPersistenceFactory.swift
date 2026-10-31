@@ -288,6 +288,18 @@ enum ContentDraftPersistenceFactory {
             directoryURL: directoryURL,
             fileManager: fileManager
         )
+        if let existingGeneration = try swiftDataBackend.backendGenerationID() {
+            // LiveContainer may present another guest-local Application
+            // Support directory while the durable SwiftData store remains in
+            // the shared app group. Prefer its marker instead of resurrecting
+            // the local file backend.
+            let state = ContentDraftPersistenceState.initialSwiftData(
+                generationID: existingGeneration
+            )
+            _ = try state.validated()
+            try stateFile.replace(state)
+            return swiftDataBackend
+        }
         let sourcePresence = try source.catalogPresence()
         guard sourcePresence == .absent else {
             // An iOS 16 file store always commits activeFiles before accepting
@@ -302,10 +314,17 @@ enum ContentDraftPersistenceFactory {
             // durable SwiftData records when availability recovers.
             throw ContentDraftPersistenceError.unavailable
         }
-        // A pre-existing marker without state can be a lost activation commit.
-        // Never auto-adopt it or reconstruct state from the destination alone.
-        guard try swiftDataBackend.backendGenerationID() == nil else {
-            throw ContentDraftPersistenceStateError.ambiguousBackends
+        if let existingGeneration = try swiftDataBackend.backendGenerationID() {
+            // LiveContainer can relaunch the guest with a different HOME while
+            // the SwiftData store remains in the shared app group. There are
+            // no local source artifacts in this path, so the marker identifies
+            // the already-authoritative SwiftData backend.
+            let state = ContentDraftPersistenceState.initialSwiftData(
+                generationID: existingGeneration
+            )
+            _ = try state.validated()
+            try stateFile.replace(state)
+            return swiftDataBackend
         }
         let generationID = UUID().uuidString.lowercased()
         let pendingState = ContentDraftPersistenceState.nativeActivationPending(
