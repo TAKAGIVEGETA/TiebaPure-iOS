@@ -939,15 +939,16 @@ struct ThreadReadingPositionPersistenceFactory {
         state: ThreadReadingPositionBackendState,
         file: FileThreadReadingPositionPersistence
     ) throws -> any ThreadReadingPositionPersistence {
-        if supportsSwiftData,
-           let destination = try makeSwiftData(),
-           destination.capability.isDurable,
-           let existingGeneration = try destination.backendGenerationID() {
-            try file.adoptNativeSwiftData(
-                generationID: existingGeneration,
-                now: now()
-            )
-            return destination
+        if supportsSwiftData {
+            let destination = try makeSwiftData()
+            if destination.capability.isDurable,
+               let existingGeneration = try destination.backendGenerationID() {
+                try file.adoptNativeSwiftData(
+                    generationID: existingGeneration,
+                    now: now()
+                )
+                return destination
+            }
         }
 
         switch state.migrationState {

@@ -91,6 +91,7 @@ enum AppModelContainer {
             let container = try openContainer(at: defaultURL, schema: schema)
             recordDiagnostics(
                 defaultURL: defaultURL,
+                savedURL: nil,
                 openedURL: defaultURL,
                 usedSavedURL: false,
                 errorText: nil
@@ -99,6 +100,7 @@ enum AppModelContainer {
         } catch {
             recordDiagnostics(
                 defaultURL: defaultURL,
+                savedURL: nil,
                 openedURL: nil,
                 usedSavedURL: false,
                 errorText: String(describing: error)
