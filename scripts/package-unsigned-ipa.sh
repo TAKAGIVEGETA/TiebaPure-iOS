@@ -59,7 +59,6 @@ rm -rf "$ARCHIVE_PATH" "$PAYLOAD_DIR"
 mkdir -p "$PAYLOAD_DIR"
 
 xcodebuild \
-  -quiet \
   -project "$ROOT/TiebaPure.xcodeproj" \
   -scheme TiebaPure \
   -configuration Release \
