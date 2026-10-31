@@ -5,6 +5,8 @@ import SwiftData
 // build their own container from `models` with an in-memory configuration.
 @available(iOS 17.0, *)
 enum AppModelContainer {
+    private static let storeURLDefaultsKey = "dev.infinityf4p.tiebapure.swiftDataStoreURL"
+
     struct Resolution {
         let container: ModelContainer
         let availability: PersistenceAvailability
@@ -31,15 +33,7 @@ enum AppModelContainer {
         do {
             return try resolve(
                 persistent: {
-                    let storeURL = ModelConfiguration(schema: schema).url
-                    return try ModelContainer(
-                        for: schema,
-                        configurations: ModelConfiguration(
-                            schema: schema,
-                            url: storeURL,
-                            cloudKitDatabase: .none
-                        )
-                    )
+                    makePersistentContainer(schema: schema)
                 },
                 fallback: {
                     try ModelContainer(
@@ -52,6 +46,41 @@ enum AppModelContainer {
             fatalError("ModelContainer creation failed: \(error)")
         }
     }()
+
+    private static func makePersistentContainer(schema: Schema) throws -> ModelContainer {
+        let defaultURL = ModelConfiguration(schema: schema).url
+        let savedURL = savedStoreURL()
+        do {
+            let container = try openContainer(at: savedURL ?? defaultURL, schema: schema)
+            UserDefaults.standard.set((savedURL ?? defaultURL).path, forKey: storeURLDefaultsKey)
+            return container
+        } catch {
+            guard let savedURL, savedURL != defaultURL else { throw error }
+            let container = try openContainer(at: defaultURL, schema: schema)
+            UserDefaults.standard.set(defaultURL.path, forKey: storeURLDefaultsKey)
+            return container
+        }
+    }
+
+    private static func openContainer(at url: URL, schema: Schema) throws -> ModelContainer {
+        try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(
+                schema: schema,
+                url: url,
+                cloudKitDatabase: .none
+            )
+        )
+    }
+
+    private static func savedStoreURL() -> URL? {
+        guard let path = UserDefaults.standard.string(forKey: storeURLDefaultsKey),
+              path.isEmpty == false else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: path)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
 
     static let shared = sharedResolution.container
     static var sharedAvailability: PersistenceAvailability {
