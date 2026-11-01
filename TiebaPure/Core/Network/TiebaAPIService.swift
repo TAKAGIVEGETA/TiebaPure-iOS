@@ -46,6 +46,9 @@ protocol TiebaAPIService {
     ) async throws -> SubpostPage
     func userProfile(account: Account?, user: UserSummary) async throws -> UserProfile
     func userThreads(account: Account?, userID: Int64, page: Int) async throws -> UserThreadsPage
+    func userReplies(account: Account?, userID: Int64, page: Int) async throws -> OwnRepliesPage
+    func deleteOwnReply(account: Account, reply: OwnReply) async throws
+    func subpostLocation(account: Account?, threadID: Int64, forumID: Int64, subpostID: UInt64) async throws -> SubpostLocation?
     func updateOwnProfile(account: Account, request: UserProfileEditRequest) async throws
     func deleteOwnThread(account: Account, target: OwnThreadDeletionTarget) async throws
     func setUserFollowed(account: Account, user: UserSummary, followed: Bool) async throws
@@ -207,6 +210,23 @@ extension TiebaAPIService {
             hasMore: false
         )
     }
+
+    func userReplies(account: Account?, userID: Int64, page: Int) async throws -> OwnRepliesPage {
+        OwnRepliesPage(replies: [], currentPage: page, hasMore: false, visibility: .visible)
+    }
+
+    func deleteOwnReply(account: Account, reply: OwnReply) async throws {}
+
+    func subpostLocation(account: Account?, threadID: Int64, forumID: Int64, subpostID: UInt64) async throws -> SubpostLocation? {
+        nil
+    }
 }
 
-extension TiebaAPI: TiebaAPIService {}
+extension TiebaAPI: TiebaAPIService {
+    func userReplies(account: Account?, userID: Int64, page: Int) async throws -> OwnRepliesPage {
+        guard let account else {
+            return OwnRepliesPage(replies: [], currentPage: page, hasMore: false, visibility: .visible)
+        }
+        return try await userReplies(account: account, page: page)
+    }
+}

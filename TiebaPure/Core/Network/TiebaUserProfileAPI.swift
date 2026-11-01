@@ -158,6 +158,54 @@ enum UserProfileRequestFactory {
             throw UserProfileMutationError.invalidFirstPostID
         }
     }
+
+    /// Fields for deleting one of the account's own replies.
+    static func deletePostFields(
+        account: Account,
+        tbs: String,
+        reply: OwnReply,
+        requestBuilder: TiebaRequestBuilder,
+        timestamp: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)
+    ) throws -> [String: String] {
+        try validateReplyDeletionTarget(reply)
+        let resolvedTBS = tbs.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard resolvedTBS.isEmpty == false else {
+            throw UserProfileAPIError.missingTBS
+        }
+        var fields = requestBuilder.officialCommonFields(
+            bduss: account.bduss,
+            baiduID: account.baiduID,
+            clientVersion: ownThreadDeleteClientVersion,
+            timestamp: timestamp
+        )
+        fields.merge([
+            "delete_my_post": "1",
+            "fid": "\(reply.forumID)",
+            "is_vipdel": "0",
+            "isfloor": "0",
+            "pid": "\(reply.id)",
+            "src": "1",
+            "tbs": resolvedTBS,
+            "word": reply.forumName.trimmingCharacters(in: .whitespacesAndNewlines),
+            "z": "\(reply.threadID)"
+        ], uniquingKeysWith: { _, new in new })
+        return fields
+    }
+
+    static func validateReplyDeletionTarget(_ reply: OwnReply) throws {
+        guard reply.forumID > 0 else {
+            throw UserProfileMutationError.invalidForumID
+        }
+        guard reply.forumName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw UserProfileMutationError.invalidForumName
+        }
+        guard reply.threadID > 0 else {
+            throw UserProfileMutationError.invalidThreadID
+        }
+        guard reply.id > 0 else {
+            throw UserProfileMutationError.invalidReplyID
+        }
+    }
 }
 
 enum UserProfileAPIError: Error, Equatable, CustomStringConvertible {
@@ -186,6 +234,7 @@ enum UserProfileMutationError: Error, Equatable, CustomStringConvertible {
     case invalidForumName
     case invalidThreadID
     case invalidFirstPostID
+    case invalidReplyID
     case outcomeUnknown
     case unsupportedByService
 
@@ -201,6 +250,8 @@ enum UserProfileMutationError: Error, Equatable, CustomStringConvertible {
             return "主题 ID 无效，无法删除主题。"
         case .invalidFirstPostID:
             return "缺少主题首帖 ID，无法确认删除目标。"
+        case .invalidReplyID:
+            return "缺少回复 ID，无法删除这条回复。"
         case .outcomeUnknown:
             return "请求已经发出，但未能确认贴吧是否处理成功。请刷新后再决定是否重试。"
         case .unsupportedByService:
@@ -301,6 +352,64 @@ extension TiebaAPI {
         )
         let response = try await sendFinalUserProfileMutation(
             endpoint: .deleteOwnThread,
+            fields: fields,
+            headers: requestBuilder.officialHeaders(
+                baiduID: account.baiduID,
+                clientVersion: UserProfileRequestFactory.ownThreadDeleteClientVersion,
+                timestamp: timestamp
+            )
+        )
+        try TiebaResponseValidator.validate(
+            code: response.errorCode,
+            message: response.errorMessage
+        )
+    }
+
+    /// The account's own replies (本人回帖).
+    func userReplies(account: Account, page: Int) async throws -> OwnRepliesPage {
+        let requestedPage = max(page, 1)
+        var fields = requestBuilder.officialCommonFields(
+            bduss: account.bduss,
+            baiduID: account.baiduID,
+            clientVersion: UserProfileRequestFactory.ownThreadDeleteClientVersion
+        )
+        fields.merge([
+            "is_thread": "0",
+            "need_content": "1",
+            "pn": "\(requestedPage)",
+            "rn": "20",
+            "uid": account.uid
+        ], uniquingKeysWith: { _, new in new })
+
+        let response = try await client.postForm(
+            .userPosts,
+            fields: fields,
+            headers: requestBuilder.officialHeaders(
+                baiduID: account.baiduID,
+                clientVersion: UserProfileRequestFactory.ownThreadDeleteClientVersion
+            ),
+            signingSecret: "tiebaclient!!!",
+            as: UserPostFeedDTO.self
+        )
+        try TiebaResponseValidator.validate(code: response.errorCode, message: response.errorMessage)
+        return UserProfileMapper.ownRepliesPage(from: response, page: requestedPage)
+    }
+
+    func deleteOwnReply(account: Account, reply: OwnReply) async throws {
+        try Task.checkCancellation()
+        try UserProfileRequestFactory.validateReplyDeletionTarget(reply)
+        let tbs = try await refreshedClientTBS(for: account)
+        try Task.checkCancellation()
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1_000)
+        let fields = try UserProfileRequestFactory.deletePostFields(
+            account: account,
+            tbs: tbs,
+            reply: reply,
+            requestBuilder: requestBuilder,
+            timestamp: timestamp
+        )
+        let response = try await sendFinalUserProfileMutation(
+            endpoint: .deleteOwnPost,
             fields: fields,
             headers: requestBuilder.officialHeaders(
                 baiduID: account.baiduID,
@@ -448,5 +557,123 @@ private func strictUserProfileMutationInteger(_ value: Any) throws -> Int {
         return integer
     default:
         throw UserProfileMutationError.outcomeUnknown
+    }
+}
+
+/// The JSON shape of `/c/u/feed/userpost`.
+struct UserPostFeedDTO: Decodable {
+    struct ContentDTO: Decodable {
+        var text: String
+
+        enum CodingKeys: String, CodingKey {
+            case text
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            text = container.flexibleString(forKey: .text)
+        }
+    }
+
+    struct ReplyDTO: Decodable {
+        var postID: UInt64
+        var createTime: Int
+        var postType: Int
+        var contents: [ContentDTO]
+
+        enum CodingKeys: String, CodingKey {
+            case postID = "post_id"
+            case createTime = "create_time"
+            case postType = "post_type"
+            case contents = "post_content"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            postID = container.flexibleUInt64(forKey: .postID)
+            createTime = container.flexibleIntValue(forKey: .createTime)
+            postType = container.flexibleIntValue(forKey: .postType)
+            contents = (try? container.decodeIfPresent([ContentDTO].self, forKey: .contents)) ?? []
+        }
+    }
+
+    struct ThreadDTO: Decodable {
+        var forumID: Int64
+        var threadID: Int64
+        var forumName: String
+        var title: String
+        var replies: [ReplyDTO]
+
+        enum CodingKeys: String, CodingKey {
+            case forumID = "forum_id"
+            case threadID = "thread_id"
+            case forumName = "forum_name"
+            case title
+            case replies = "content"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            forumID = container.flexibleInt64(forKey: .forumID)
+            threadID = container.flexibleInt64(forKey: .threadID)
+            forumName = container.flexibleString(forKey: .forumName)
+            title = container.flexibleString(forKey: .title)
+            replies = (try? container.decodeIfPresent([ReplyDTO].self, forKey: .replies)) ?? []
+        }
+    }
+
+    var errorCode: Int
+    var errorMessage: String
+    var hidePost: Int
+    var threads: [ThreadDTO]
+
+    enum CodingKeys: String, CodingKey {
+        case threads = "post_list"
+        case errorCode = "error_code"
+        case errorMessage = "error_msg"
+        case hidePost = "hide_post"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        threads = (try? container.decodeIfPresent([ThreadDTO].self, forKey: .threads)) ?? []
+        errorCode = Int(container.flexibleString(forKey: .errorCode)) ?? 0
+        errorMessage = container.flexibleString(forKey: .errorMessage)
+        hidePost = container.flexibleIntValue(forKey: .hidePost)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func flexibleString(forKey key: Key) -> String {
+        if let value = try? decodeIfPresent(String.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) { return String(value) }
+        if let value = try? decodeIfPresent(Int64.self, forKey: key) { return String(value) }
+        if let value = try? decodeIfPresent(Double.self, forKey: key) {
+            return value == value.rounded() ? String(Int(value)) : String(value)
+        }
+        return ""
+    }
+
+    func flexibleIntValue(forKey key: Key) -> Int {
+        if let value = try? decodeIfPresent(Int.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Int64.self, forKey: key) { return Int(clamping: value) }
+        if let value = try? decodeIfPresent(Bool.self, forKey: key) { return value ? 1 : 0 }
+        if let value = try? decodeIfPresent(String.self, forKey: key) { return Int(value) ?? 0 }
+        return 0
+    }
+
+    func flexibleInt64(forKey key: Key) -> Int64 {
+        if let value = try? decodeIfPresent(Int64.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) { return Int64(value) }
+        if let value = try? decodeIfPresent(String.self, forKey: key) { return Int64(value) ?? 0 }
+        return 0
+    }
+
+    func flexibleUInt64(forKey key: Key) -> UInt64 {
+        if let value = try? decodeIfPresent(UInt64.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Int64.self, forKey: key), value > 0 { return UInt64(value) }
+        if let value = try? decodeIfPresent(Int.self, forKey: key), value > 0 { return UInt64(value) }
+        if let value = try? decodeIfPresent(String.self, forKey: key) { return UInt64(value) ?? 0 }
+        return 0
     }
 }

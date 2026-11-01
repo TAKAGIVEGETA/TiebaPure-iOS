@@ -48,6 +48,22 @@ struct TiebaAPI {
         return account
     }
 
+    /// The write-token handshake, and the only place that mints one.
+    func writeTokenLogin(bduss: String) async throws -> LoginResponseDTO {
+        return try await client.postForm(
+            .postingLogin,
+            fields: [
+                "_client_version": TiebaContentSubmissionRequestFactory.postingLoginClientVersion,
+                "bdusstoken": bduss
+            ],
+            headers: [
+                "User-Agent": "tieba/\(TiebaContentSubmissionRequestFactory.postingLoginClientVersion) skin/default"
+            ],
+            signingSecret: "tiebaclient!!!",
+            as: LoginResponseDTO.self
+        )
+    }
+
     func login(bduss: String, stoken: String, baiduID: String = "") async throws -> LoginResponseDTO {
         let timestamp = Int64(Date().timeIntervalSince1970 * 1_000)
         var fields = requestBuilder.officialCommonFields(
@@ -520,7 +536,7 @@ extension TiebaAPI {
     ) async throws -> ThreadPage {
         let requestPage = try TiebaRequestValuePolicy.signedPage(page)
         var requestData = Tieba_PbPage_PbPageRequestData()
-        requestData.common = requestBuilder.common(account: account)
+        requestData.common = requestBuilder.common(account: account, clientVersion: TiebaClientVersion.v22_12.rawValue)
         requestData.kz = threadID
         requestData.pn = requestPage
         requestData.r = Int32(sortType.rawValue)
@@ -572,7 +588,7 @@ extension TiebaAPI {
         let requestPostID = try TiebaRequestValuePolicy.signedIdentifier(postID)
         let requestSubpostID = try TiebaRequestValuePolicy.signedIdentifier(subpostID)
         var requestData = Tieba_PbFloor_PbFloorRequestData()
-        requestData.common = requestBuilder.common(account: account)
+        requestData.common = requestBuilder.common(account: account, clientVersion: TiebaClientVersion.v22_12.rawValue)
         requestData.forumID = forumID
         requestData.kz = threadID
         requestData.pid = requestPostID
@@ -637,6 +653,48 @@ extension TiebaAPI {
             page: page,
             subpostID: subpostID
         ).subposts
+    }
+
+    func subpostLocation(
+        account: Account?,
+        threadID: Int64,
+        forumID: Int64,
+        subpostID: UInt64
+    ) async throws -> SubpostLocation? {
+        guard subpostID > 0, threadID > 0, forumID > 0 else { return nil }
+        let requestSubpostID = try TiebaRequestValuePolicy.signedIdentifier(subpostID)
+        var requestData = Tieba_PbFloor_PbFloorRequestData()
+        requestData.common = requestBuilder.common(account: account)
+        requestData.forumID = forumID
+        requestData.kz = threadID
+        requestData.pid = requestSubpostID
+        requestData.spid = requestSubpostID
+        requestData.pn = try TiebaRequestValuePolicy.signedPage(1)
+        requestData.scrDip = requestBuilder.screenScale
+        requestData.scrH = Int32(requestBuilder.screenHeight)
+        requestData.scrW = Int32(requestBuilder.screenWidth)
+        requestData.isCommReverse = 0
+        requestData.oriUgcType = 0
+
+        var request = Tieba_PbFloor_PbFloorRequest()
+        request.data = requestData
+
+        let multipart = try requestBuilder.multipart(
+            protobuf: request,
+            account: account,
+            includeSToken: false
+        )
+        let response = try await client.postProtobuf(
+            .pbFloor,
+            body: multipart.body,
+            contentType: multipart.contentType,
+            as: Tieba_PbFloor_PbFloorResponse.self
+        )
+        try validateTiebaError(response.error)
+        guard response.hasData, response.data.hasPost else { return nil }
+        let floorPost = response.data.post
+        guard floorPost.id > 0, floorPost.id != subpostID else { return nil }
+        return SubpostLocation(floorPostID: floorPost.id, floor: Int(floorPost.floor))
     }
 
     static func shouldFallbackFromForumProtobuf(_ error: Error) -> Bool {

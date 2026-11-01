@@ -6,19 +6,22 @@ struct SubpostPreviewView: View {
     let threadAuthorID: Int64?
     let onOpenAll: (() -> Void)?
     let onOpenUser: ((UserSummary) -> Void)?
+    let onOpenTiebaRoute: ((ExternalRoute) -> Void)?
 
     init(
         subposts: [Subpost],
         totalCount: Int,
         threadAuthorID: Int64?,
         onOpenAll: (() -> Void)? = nil,
-        onOpenUser: ((UserSummary) -> Void)? = nil
+        onOpenUser: ((UserSummary) -> Void)? = nil,
+        onOpenTiebaRoute: ((ExternalRoute) -> Void)? = nil
     ) {
         self.subposts = Array(subposts.prefix(3))
         self.totalCount = totalCount
         self.threadAuthorID = threadAuthorID
         self.onOpenAll = onOpenAll
         self.onOpenUser = onOpenUser
+        self.onOpenTiebaRoute = onOpenTiebaRoute
     }
 
     var body: some View {
@@ -30,7 +33,8 @@ struct SubpostPreviewView: View {
                             subpost: subpost,
                             threadAuthorID: threadAuthorID,
                             lineLimit: ThreadContentDisplayPolicy.detailLineLimit,
-                            onOpenUser: onOpenUser
+                            onOpenUser: onOpenUser,
+                            onOpenTiebaRoute: onOpenTiebaRoute
                         )
                     }
                 }
@@ -80,6 +84,8 @@ enum SubpostPreviewLayout {
     static let openAllVisualMinHeight: CGFloat = 30
     static let openAllHitHeight: CGFloat = 36
     static let openAllHitExpansion = (openAllHitHeight - openAllVisualMinHeight) / 2
+    static let imageMaxHeight: CGFloat = 160
+    static let imageMaxWidth: CGFloat = 200
 }
 
 struct SubpostInlineRow: View {
@@ -89,32 +95,74 @@ struct SubpostInlineRow: View {
     let threadAuthorID: Int64?
     var lineLimit: Int = ThreadContentDisplayPolicy.detailLineLimit
     var onOpenUser: ((UserSummary) -> Void)?
+    var onOpenTiebaRoute: ((ExternalRoute) -> Void)?
 
     var body: some View {
-        InlineContentText(
-            blocks: subpost.blocks,
-            style: .subpost,
-            lineLimit: lineLimit,
-            readerFontSize: readingPreferences.fontSize,
-            readerFontFamily: readingPreferences.fontFamily,
-            readerLineSpacing: readingPreferences.lineSpacing,
-            prefixParts: SubpostInlinePrefix.parts(
-                author: subpost.author,
-                isThreadAuthor: isThreadAuthor
-            ),
-            allowsTextSelection: ThreadContentInteractionPolicy.allowsTextSelection(
-                for: lineLimit
-            ),
-            accessibilityIdentifier: "thread-subpost-preview-text",
-            onOpenUser: onOpenUser
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: TiebaPureTheme.Spacing.xxs) {
+            InlineContentText(
+                blocks: textBlocks,
+                style: .subpost,
+                lineLimit: lineLimit,
+                readerFontSize: readingPreferences.fontSize,
+                readerFontFamily: readingPreferences.fontFamily,
+                readerLineSpacing: readingPreferences.lineSpacing,
+                prefixParts: SubpostInlinePrefix.parts(
+                    author: subpost.author,
+                    isThreadAuthor: isThreadAuthor
+                ),
+                allowsTextSelection: ThreadContentInteractionPolicy.allowsTextSelection(
+                    for: lineLimit
+                ),
+                accessibilityIdentifier: "thread-subpost-preview-text",
+                onOpenUser: onOpenUser,
+                onOpenTiebaRoute: onOpenTiebaRoute
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if images.isEmpty == false {
+                ForEach(Array(images.enumerated()), id: \.offset) { index, image in
+                    ImageViewer(
+                        image: image,
+                        galleryImages: images,
+                        galleryIndex: index,
+                        maxDisplayWidth: SubpostPreviewLayout.imageMaxWidth,
+                        maxDisplayHeight: SubpostPreviewLayout.imageMaxHeight
+                    )
+                }
+            }
+        }
     }
 
     private var isThreadAuthor: Bool {
         guard let threadAuthorID else { return false }
         return threadAuthorID != 0 && subpost.author.id == threadAuthorID
+    }
+
+    private var textBlocks: [ContentBlock] {
+        subpost.blocks.compactMap { block -> ContentBlock? in
+            switch block {
+            case .image:
+                return nil
+            case let .text(text):
+                if images.isEmpty == false {
+                    let cleaned = text.replacingOccurrences(of: "[图片]", with: "")
+                    return cleaned.isEmpty ? nil : .text(cleaned)
+                }
+                return .text(text)
+            default:
+                return block
+            }
+        }
+    }
+
+    private var images: [ImageContent] {
+        subpost.blocks.compactMap {
+            if case let .image(image) = $0 {
+                return image
+            }
+            return nil
+        }
     }
 }
 

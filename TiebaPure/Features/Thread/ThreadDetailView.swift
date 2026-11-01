@@ -15,6 +15,8 @@ struct ThreadDetailView: View {
     let threadID: Int64
     let forumID: Int64?
     let initialPostID: UInt64?
+    /// A 楼中楼 reply to open at its parent floor.
+    let initialSubpostID: UInt64?
     let initialDestination: ThreadDetailInitialDestination?
     private let mainPostFallback: ThreadMainPostFallback?
     private let ownThreadDeletionTarget: OwnThreadDeletionTarget?
@@ -48,6 +50,9 @@ struct ThreadDetailView: View {
     @State private var isStandaloneSearchPresented = false
     @State private var didCopyLink = false
     @State private var pendingInitialPostID: UInt64?
+    @State private var didResolveInitialSubpost = false
+    @State private var highlightedPostID: UInt64?
+    @State private var highlightClearTask: Task<Void, Never>?
     @State private var pendingInitialDestination: ThreadDetailInitialDestination?
     @State private var initialDestinationScrollRequest = 0
     @State private var isReplyDestinationTargetReady = false
@@ -83,6 +88,7 @@ struct ThreadDetailView: View {
     @State private var contentNavigationGeneration = 0
     @State private var contentNavigationTask: Task<Void, Never>?
     @State private var pendingSubpostInitialID: UInt64?
+    @State private var linkedRoute: ExternalRoute?
     @State private var contentActionError: String?
     @State private var showsOwnThreadDeleteConfirmation = false
     @State private var isDeletingOwnThread = false
@@ -100,6 +106,7 @@ struct ThreadDetailView: View {
         threadID: Int64,
         forumID: Int64? = nil,
         initialPostID: UInt64? = nil,
+        initialSubpostID: UInt64? = nil,
         initialDestination: ThreadDetailInitialDestination? = nil,
         ownThreadDeletionTarget: OwnThreadDeletionTarget? = nil,
         mainPostFallback: ThreadMainPostFallback? = nil,
@@ -113,6 +120,7 @@ struct ThreadDetailView: View {
         self.threadID = threadID
         self.forumID = forumID
         self.initialPostID = initialPostID
+        self.initialSubpostID = initialSubpostID
         self.initialDestination = initialDestination
         self.mainPostFallback = mainPostFallback
         self.ownThreadDeletionTarget = ownThreadDeletionTarget
@@ -324,6 +332,15 @@ struct ThreadDetailView: View {
             }) { post in
                 subpostSheetContent(post: post)
             }
+            // A tieba.baidu.com link tapped inside a post opens here instead of
+            // leaving for Safari or the official client. The cover carries its
+            // own stack, so a thread opened from a link can itself open the
+            // next link without unwinding the reader underneath.
+            .fullScreenCover(item: $linkedRoute) { route in
+                ExternalRouteView(account: account, route: route) {
+                    linkedRoute = nil
+                }
+            }
     }
 
     private var lifecycleContent: some View {
@@ -377,6 +394,7 @@ struct ThreadDetailView: View {
         guard didLoad == false else { return }
         applyDefaultReplySortIfNeeded()
         await reload()
+        await locateInitialSubpostIfNeeded()
     }
 
     private func resetForAccountChange() {
@@ -404,6 +422,7 @@ struct ThreadDetailView: View {
         pendingSubmissionAccount = nil
         pendingSubmissionRouteID = nil
         pendingSubpostInitialID = nil
+        linkedRoute = nil
         isSearchActive = false
         isStandaloneSearchPresented = false
         selectedUser = nil
@@ -412,6 +431,8 @@ struct ThreadDetailView: View {
         showsInlineRefreshAnimation = false
         pendingInitialPostID = initialPostID
         pendingInitialDestination = initialDestination
+        didResolveInitialSubpost = false
+        cancelPostHighlight()
         savedReadingPosition = nil
         didResolveSavedReadingPosition = false
         isResumingReadingPosition = false
@@ -568,6 +589,7 @@ struct ThreadDetailView: View {
                     isMainPost: true,
                     onOpenSubposts: openSubpostsIfPossible,
                     onOpenUser: openUser,
+                    onOpenTiebaRoute: openTiebaRoute,
                     isLikeUpdating: updatingPostLikeIDs.contains(mainPost.id),
                     onToggleLike: contentSubmissionSettingsStore.likesEnabled && mainPost.id > 0
                         ? { toggleLike(for: mainPost, objectType: .thread) }
@@ -578,6 +600,7 @@ struct ThreadDetailView: View {
                 )
                 .equatable()
                 .padding(.bottom, TiebaPureTheme.Spacing.xs)
+                .readerTargetHighlight(highlightedPostID == mainPost.id)
                 .threadPreciseScrollAnchor(
                     post: mainPost,
                     isEnabled: preciseScrollSession?.postID == mainPost.id
@@ -641,6 +664,7 @@ struct ThreadDetailView: View {
                     threadAuthorID: threadAuthorID,
                     onOpenSubposts: openSubpostsIfPossible,
                     onOpenUser: openUser,
+                    onOpenTiebaRoute: openTiebaRoute,
                     isLikeUpdating: updatingPostLikeIDs.contains(post.id),
                     onToggleLike: contentSubmissionSettingsStore.likesEnabled
                         ? { toggleLike(for: post, objectType: .post) }
@@ -650,6 +674,7 @@ struct ThreadDetailView: View {
                         : nil
                 )
                 .equatable()
+                .readerTargetHighlight(highlightedPostID == post.id)
                 .threadPreciseScrollAnchor(
                     post: post,
                     isEnabled: preciseScrollSession?.postID == post.id
@@ -1499,6 +1524,80 @@ struct ThreadDetailView: View {
         scrollRequest = ThreadPostScrollRequest(id: UUID(), postID: postID)
     }
 
+    private func locateInitialSubpostIfNeeded() async {
+        guard didResolveInitialSubpost == false,
+              let target = initialSubpostID,
+              target > 0 else { return }
+        didResolveInitialSubpost = true
+
+        if let floorPost = postHoldingSubpost(target) {
+            await presentLocatedSubpost(target, floorPost: floorPost, source: "本页预览")
+            return
+        }
+
+        guard let resolvedForumID else { return }
+
+        let location: SubpostLocation?
+        do {
+            location = try await environment.api.subpostLocation(
+                account: account,
+                threadID: threadID,
+                forumID: resolvedForumID,
+                subpostID: target
+            )
+        } catch {
+            return
+        }
+        guard let location else { return }
+        guard Task.isCancelled == false else { return }
+
+        if let floorPost = post(withID: location.floorPostID) {
+            await presentLocatedSubpost(target, floorPost: floorPost, source: "服务端")
+            return
+        }
+
+        pendingInitialPostID = location.floorPostID
+        await reload()
+        guard Task.isCancelled == false else { return }
+        guard let floorPost = post(withID: location.floorPostID) else { return }
+        await presentLocatedSubpost(target, floorPost: floorPost, source: "服务端取页")
+    }
+
+    private func postHoldingSubpost(_ subpostID: UInt64) -> Post? {
+        let candidates = posts + [mainPost].compactMap { $0 }
+        return candidates.first { post in
+            post.previewSubposts.contains { $0.id == subpostID }
+        }
+    }
+
+    private func post(withID postID: UInt64) -> Post? {
+        if mainPost?.id == postID { return mainPost }
+        return posts.first { $0.id == postID }
+    }
+
+    private func presentLocatedSubpost(
+        _ subpostID: UInt64,
+        floorPost: Post,
+        source: String
+    ) async {
+        requestScroll(to: floorPost.id)
+        highlightedPostID = floorPost.id
+        highlightClearTask?.cancel()
+        highlightClearTask = Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard Task.isCancelled == false else { return }
+            highlightedPostID = nil
+        }
+        selectedSubpostPost = floorPost
+        pendingSubpostInitialID = subpostID
+    }
+
+    private func cancelPostHighlight() {
+        highlightClearTask?.cancel()
+        highlightClearTask = nil
+        highlightedPostID = nil
+    }
+
     private func requestInitialDestinationScrollIfReady() {
         guard pendingInitialDestination == .replies,
               isReplyDestinationTargetReady else { return }
@@ -2094,6 +2193,10 @@ struct ThreadDetailView: View {
     private func openSubpostsIfPossible(_ post: Post) {
         guard post.subpostCount > 0 else { return }
         selectedSubpostPost = post
+    }
+
+    private func openTiebaRoute(_ route: ExternalRoute) {
+        linkedRoute = route
     }
 
     private func toggleLike(for post: Post, objectType: TiebaLikeObjectType) {
@@ -2789,6 +2892,7 @@ private struct SubpostListSheet: View {
     @State private var pendingSubmissionRouteID: UUID?
     @State private var submissionReloadGeneration = 0
     @State private var submissionReloadTask: Task<Void, Never>?
+    @State private var linkedRoute: ExternalRoute?
 
     init(
         account: Account?,
@@ -2856,6 +2960,7 @@ private struct SubpostListSheet: View {
                                             readerFontFamily: readingPreferences.fontFamily,
                                             readerLineSpacing: readingPreferences.lineSpacing,
                                             inlineAccessibilityIdentifier: "thread-subpost-parent-text",
+                                            onOpenTiebaRoute: openTiebaRoute,
                                             onPlainTextTap: contentSubmissionSettingsStore.repliesEnabled
                                                 ? openParentReplyComposer
                                                 : nil
@@ -2885,6 +2990,7 @@ private struct SubpostListSheet: View {
                                     subpost: subpost,
                                     threadAuthorID: threadAuthorID,
                                     onOpenUser: openUser,
+                                    onOpenTiebaRoute: openTiebaRoute,
                                     isLikeUpdating: updatingLikeIDs.contains(subpost.id),
                                     onToggleLike: contentSubmissionSettingsStore.likesEnabled
                                         ? { toggleSubpostLike(subpost) }
@@ -3009,6 +3115,14 @@ private struct SubpostListSheet: View {
                         .environmentObject(environment)
                     }
                 }
+                // A tieba.baidu.com link tapped in the parent floor or in a
+                // 楼中楼 reply opens from here: the reader behind this sheet is
+                // already presenting it and cannot present a second cover.
+                .fullScreenCover(item: $linkedRoute) { route in
+                    ExternalRouteView(account: account, route: route) {
+                        linkedRoute = nil
+                    }
+                }
             }
             .task {
                 guard didLoad == false else { return }
@@ -3128,6 +3242,10 @@ private struct SubpostListSheet: View {
                 subpost: subpost
             )
         )
+    }
+
+    private func openTiebaRoute(_ route: ExternalRoute) {
+        linkedRoute = route
     }
 
     private func openUser(_ user: UserSummary) {
@@ -3353,6 +3471,7 @@ private struct SubpostRowView: View {
     let subpost: Subpost
     let threadAuthorID: Int64?
     let onOpenUser: ((UserSummary) -> Void)?
+    let onOpenTiebaRoute: ((ExternalRoute) -> Void)?
     let isLikeUpdating: Bool
     let onToggleLike: (() -> Void)?
     let onReply: (() -> Void)?
@@ -3386,6 +3505,7 @@ private struct SubpostRowView: View {
                         readerLineSpacing: readingPreferences.lineSpacing,
                         inlineAccessibilityIdentifier: "thread-subpost-text",
                         onOpenUser: onOpenUser,
+                        onOpenTiebaRoute: onOpenTiebaRoute,
                         onPlainTextTap: onReply
                     )
                     ThreadPostMetadataView(

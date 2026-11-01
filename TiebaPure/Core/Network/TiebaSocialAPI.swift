@@ -346,11 +346,7 @@ extension TiebaAPI {
         var webError: Error?
 
         do {
-            let response = try await login(
-                bduss: account.bduss,
-                stoken: account.stoken,
-                baiduID: account.baiduID ?? ""
-            )
+            let response = try await writeTokenLogin(bduss: account.bduss)
             try Task.checkCancellation()
             let code = Int(response.errorCode ?? "0") ?? 0
             if code == 0 {

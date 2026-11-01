@@ -9,6 +9,8 @@ struct ImageViewer: View {
     let image: ImageContent
     let galleryImages: [ImageContent]
     let galleryIndex: Int
+    let maxDisplayWidth: CGFloat?
+    let maxDisplayHeight: CGFloat?
 
     @State private var inlineLoadState: TiebaRemoteImageLoadState = .empty
     @State private var inlineRetryTrigger = 0
@@ -20,11 +22,15 @@ struct ImageViewer: View {
     init(
         image: ImageContent,
         galleryImages: [ImageContent]? = nil,
-        galleryIndex: Int = 0
+        galleryIndex: Int = 0,
+        maxDisplayWidth: CGFloat? = nil,
+        maxDisplayHeight: CGFloat? = nil
     ) {
         self.image = image
         self.galleryImages = galleryImages ?? [image]
         self.galleryIndex = galleryIndex
+        self.maxDisplayWidth = maxDisplayWidth
+        self.maxDisplayHeight = maxDisplayHeight
         let identity = Self.sourceIdentity(for: image)
         previewSourceIdentity = identity
         _previewSource = StateObject(
@@ -106,7 +112,7 @@ struct ImageViewer: View {
     private var inlineImage: some View {
         Color.clear
         .aspectRatio(inlineAspectRatio, contentMode: .fit)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: maxDisplayWidth ?? .infinity, alignment: .leading)
         .overlay {
             GeometryReader { proxy in
                 ZStack {
@@ -126,6 +132,10 @@ struct ImageViewer: View {
                     showsRetryButton: false,
                     showsResolvedImage: false,
                     loadsAutomatically: isManualLoadAuthorized,
+                    // Tieba's preview tier flattens a 动图 to a still first
+                    // frame, so the reading surface has to ask for the animated
+                    // original once the preview is on screen.
+                    prefersAnimatedOriginal: true,
                     onLoadStateChange: {
                         inlineLoadState = $0
                         if $0 != .success {
@@ -181,7 +191,7 @@ struct ImageViewer: View {
             }
             }
         }
-        .frame(maxHeight: InlineImageLayoutPolicy.maximumInlineHeight)
+        .frame(maxHeight: maxDisplayHeight ?? InlineImageLayoutPolicy.maximumInlineHeight)
         .clipShape(RoundedRectangle(cornerRadius: TiebaPureTheme.Radius.media, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: TiebaPureTheme.Radius.media, style: .continuous))
         .clipped()
@@ -190,8 +200,8 @@ struct ImageViewer: View {
     private var imagePlaceholder: some View {
         Color.clear
         .aspectRatio(inlineAspectRatio, contentMode: .fit)
-        .frame(maxHeight: InlineImageLayoutPolicy.maximumInlineHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: maxDisplayHeight ?? InlineImageLayoutPolicy.maximumInlineHeight)
+        .frame(maxWidth: maxDisplayWidth ?? .infinity, alignment: .leading)
         .overlay {
             ZStack {
                 RoundedRectangle(cornerRadius: TiebaPureTheme.Radius.media, style: .continuous)
@@ -574,14 +584,17 @@ final class ImagePreviewSourceAnchor: ObservableObject {
             self.image = image
         }
         if view?.image !== image {
-            view?.image = image
+            // Playback is reconciled against the shared animated-image budget
+            // inside the governed view; a 动图-heavy row otherwise starts every
+            // animation the moment its bitmap lands.
+            view?.setGovernedImage(image)
         }
     }
 
     func clearImage(sourceIdentity: String) {
         guard self.sourceIdentity == sourceIdentity else { return }
         image = nil
-        view?.image = nil
+        view?.setGovernedImage(nil)
     }
 
     func prepareForReuse(sourceIdentity: String) {
@@ -607,11 +620,11 @@ final class ImagePreviewSourceAnchor: ObservableObject {
     func attach(_ view: ImagePreviewSourceView, sourceIdentity: String) {
         bind(to: sourceIdentity)
         if self.view !== view {
-            self.view?.image = nil
+            self.view?.setGovernedImage(nil)
             self.view = view
         }
         if view.image !== image {
-            view.image = image
+            view.setGovernedImage(image)
         }
     }
 
@@ -649,7 +662,7 @@ final class ImagePreviewSourceAnchor: ObservableObject {
 
     private func bind(to identity: String) {
         guard sourceIdentity != identity else { return }
-        view?.image = nil
+        view?.setGovernedImage(nil)
         view = nil
         image = nil
         sourceIdentity = identity
@@ -796,7 +809,7 @@ struct ImagePreviewSourceAnchorReader: UIViewRepresentable {
 }
 
 @MainActor
-final class ImagePreviewSourceView: UIImageView {
+final class ImagePreviewSourceView: TiebaGovernedAnimatedImageView {
     var onTransitionTap: (() -> Void)?
 
     var canActivateDuringTransition: Bool {
@@ -1571,7 +1584,10 @@ final class ImagePreviewHeroProxyView: UIView {
         isUserInteractionEnabled = false
         accessibilityElementsHidden = true
 
-        imageView.image = image.images?.first ?? image
+        // The proxy only lives for the 0.32s morph, so it shows the first frame
+        // of a 动图 instead of starting a second, ungoverned playback of the
+        // same multi-megabyte frame set the row is already holding.
+        imageView.image = TiebaAnimatedImageStillFramePolicy.still(image)
         // The outer frame and the normalized center crop are animated together
         // by the hero animator. `scaleToFill` is intentional here:
         // `contentsRect` already has the exact aspect ratio of the frame, so
@@ -2470,7 +2486,7 @@ private struct FullScreenImageItem: Identifiable {
         originalURL = sources.originalURL
         downloadURL = sources.downloadURL
         imageAspectRatio = CGFloat(image.aspectRatio)
-        self.placeholderImage = placeholderImage.flatMap { $0.images?.first ?? $0 }
+        self.placeholderImage = placeholderImage
     }
 
     init(url: URL?, index: Int) {
@@ -2698,7 +2714,12 @@ private final class FullScreenZoomImageController: UIViewController,
     private let scrollView = UIScrollView()
     private let zoomContentView = UIView()
     private let placeholderImageView = UIImageView()
-    private let resolvedImageView = UIImageView()
+    /// Playback of the full-screen bitmap goes through the shared governor with
+    /// `.foreground` priority: a 60-frame 动图 decoded at screen size commits a
+    /// bitmap per frame, and letting a plain `UIImageView` start that playback
+    /// on top of the rows behind the viewer is what made opening a 动图 full
+    /// screen freeze the app.
+    private let resolvedImageView = TiebaGovernedAnimatedImageView()
     private let activityIndicator = UIActivityIndicatorView(style: .large)
     private let retryButton = UIButton(type: .system)
     private let zoomDiagnosticsProxy = UIView()
@@ -2867,7 +2888,10 @@ private final class FullScreenZoomImageController: UIViewController,
         zoomContentView.clipsToBounds = false
         scrollView.addSubview(zoomContentView)
 
-        placeholderImageView.image = placeholderImage
+        // The reused row bitmap is a preview, not the thing being presented:
+        // keep it on its first frame so the placeholder never runs an
+        // ungoverned animation of the whole 动图 behind the hero.
+        placeholderImageView.image = TiebaAnimatedImageStillFramePolicy.still(placeholderImage)
         // Match the resolved image view exactly (aspect-fit, full bounds).
         // A .scaleAspectFill placeholder in an aspect-fit frame renders the
         // image at a different scale than the resolved .scaleAspectFit view,
@@ -2877,14 +2901,13 @@ private final class FullScreenZoomImageController: UIViewController,
         placeholderImageView.contentMode = .scaleAspectFit
         placeholderImageView.clipsToBounds = true
         placeholderImageView.backgroundColor = .clear
-        placeholderImageView.isUserInteractionEnabled = false
         placeholderImageView.isHidden = placeholderImage == nil
         zoomContentView.addSubview(placeholderImageView)
 
+        resolvedImageView.playbackPriority = .foreground
         resolvedImageView.contentMode = .scaleAspectFit
         resolvedImageView.clipsToBounds = true
         resolvedImageView.backgroundColor = .clear
-        resolvedImageView.isUserInteractionEnabled = false
         resolvedImageView.alpha = placeholderImage == nil ? 1 : 0
         zoomContentView.addSubview(resolvedImageView)
 
@@ -3083,6 +3106,10 @@ private final class FullScreenZoomImageController: UIViewController,
         metadataTask?.cancel()
         metadataTask = nil
         latestOriginalProgress = nil
+        // Hand the playback slot back before the controller leaves the
+        // hierarchy; the reading surface resumes as soon as the last
+        // full-screen view releases.
+        resolvedImageView.setGovernedImage(nil)
         presentationCancellable?.cancel()
         presentationCancellable = nil
         currentIndexCancellable?.cancel()
@@ -3218,7 +3245,7 @@ private final class FullScreenZoomImageController: UIViewController,
         resolvedImage = nil
         transitionImage = nil
         didResolveAutomaticPreview = false
-        resolvedImageView.image = nil
+        resolvedImageView.setGovernedImage(nil)
         didRevealResolvedImage = false
         resolvedImageView.alpha = 0
         placeholderImageView.alpha = placeholderImage == nil ? 0 : 1
@@ -3301,7 +3328,7 @@ private final class FullScreenZoomImageController: UIViewController,
                 // and let the presentation sink commit it in the completion
                 // transaction.
                 if loadedAfterPresentation {
-                    self.resolvedImageView.image = image
+                    self.resolvedImageView.setGovernedImage(image)
                 }
                 self.updateResolvedImageVisibility(animated:
                     ImagePreviewResolvedImageVisibilityPolicy.animatesResolvedReveal(
@@ -3323,7 +3350,7 @@ private final class FullScreenZoomImageController: UIViewController,
 
     private func commitStashedResolvedImage() {
         guard let resolvedImage, resolvedImageView.image !== resolvedImage else { return }
-        resolvedImageView.image = resolvedImage
+        resolvedImageView.setGovernedImage(resolvedImage)
     }
 
     private func startOriginalImageLoading() {
@@ -3428,7 +3455,7 @@ private final class FullScreenZoomImageController: UIViewController,
     private func revealOriginalImage(_ image: UIImage) {
         let changes = { [weak self] in
             guard let self else { return }
-            self.resolvedImageView.image = image
+            self.resolvedImageView.setGovernedImage(image)
             self.resolvedImageView.alpha = 1
             self.placeholderImageView.alpha = 0
             self.didRevealResolvedImage = true

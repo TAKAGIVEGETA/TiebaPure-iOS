@@ -20,8 +20,10 @@ enum TiebaEndpoint {
     case searchUser
     case userProfile
     case userThreads
+    case userPosts
     case modifyProfile
     case deleteOwnThread
+    case deleteOwnPost
     case followUser
     case unfollowUser
     case followedUsers
@@ -95,10 +97,14 @@ enum TiebaEndpoint {
                     .init(name: "cmd", value: "303002"),
                     .init(name: "format", value: "protobuf")
                 ])
+        case .userPosts:
+            return Self.appBase.appending(path: "/c/u/feed/userpost")
         case .modifyProfile:
             return Self.socialBase.appending(path: "/c/c/profile/modify")
         case .deleteOwnThread:
             return Self.appBase.appending(path: "/c/c/bawu/delthread")
+        case .deleteOwnPost:
+            return Self.appBase.appending(path: "/c/c/bawu/delpost")
         case .followUser:
             return Self.socialBase.appending(path: "/c/c/user/follow")
         case .unfollowUser:

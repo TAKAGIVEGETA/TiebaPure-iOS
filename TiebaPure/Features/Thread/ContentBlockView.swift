@@ -35,6 +35,7 @@ struct ContentBlocksView: View {
     var readerLineSpacing: ReaderLineSpacing = .standard
     var inlineAccessibilityIdentifier: String?
     var onOpenUser: ((UserSummary) -> Void)?
+    var onOpenTiebaRoute: ((ExternalRoute) -> Void)?
     var onPlainTextTap: (() -> Void)?
 
     var body: some View {
@@ -57,6 +58,7 @@ struct ContentBlocksView: View {
                             allowsTextSelection: true,
                             accessibilityIdentifier: inlineAccessibilityIdentifier,
                             onOpenUser: onOpenUser,
+                            onOpenTiebaRoute: onOpenTiebaRoute,
                             onPlainTextTap: onPlainTextTap
                         )
                         .fixedSize(horizontal: false, vertical: true)
@@ -96,6 +98,7 @@ struct ContentBlocksView: View {
                             ),
                             accessibilityIdentifier: inlineAccessibilityIdentifier,
                             onOpenUser: onOpenUser,
+                            onOpenTiebaRoute: onOpenTiebaRoute,
                             onPlainTextTap: onPlainTextTap
                         )
                         .fixedSize(horizontal: false, vertical: true)
@@ -129,6 +132,7 @@ enum InlinePlainTextPolicy {
         var result = ""
         for block in blocks {
             guard case let .text(text) = block else { return nil }
+            guard TiebaLinkExtractor.containsLinks(in: text) == false else { return nil }
             result.append(text)
         }
         return result
@@ -139,7 +143,9 @@ enum InlineNativeTextPolicy {
     static func supports(_ blocks: [ContentBlock]) -> Bool {
         blocks.isEmpty == false && blocks.allSatisfy { block in
             switch block {
-            case .text, .emoticon:
+            case let .text(text):
+                return TiebaLinkExtractor.containsLinks(in: text) == false
+            case .emoticon:
                 return true
             case .link, .mention, .image, .video, .voice:
                 return false
@@ -1069,6 +1075,10 @@ struct InlineContentText: UIViewRepresentable {
     var allowsTextSelection = false
     var accessibilityIdentifier: String?
     var onOpenUser: ((UserSummary) -> Void)?
+    /// Routes a tapped tieba.baidu.com link into the reader instead of handing
+    /// it to Safari or the official client. Nil keeps the external hand-off for
+    /// surfaces that cannot present an in-app destination.
+    var onOpenTiebaRoute: ((ExternalRoute) -> Void)?
     var onPlainTextTap: (() -> Void)?
     var emoticonImageProvider: (String) -> UIImage? = { code in
         TiebaEmoticon.cachedImage(for: code)
@@ -1097,7 +1107,11 @@ struct InlineContentText: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onOpenUser: onOpenUser, onPlainTextTap: onPlainTextTap)
+        Coordinator(
+            onOpenUser: onOpenUser,
+            onPlainTextTap: onPlainTextTap,
+            onOpenTiebaRoute: onOpenTiebaRoute
+        )
     }
 
     func makeUIView(context: Context) -> InlineContentTextView {
@@ -1162,6 +1176,7 @@ struct InlineContentText: UIViewRepresentable {
         textView.panGestureRecognizer.isEnabled = false
         textView.normalizeContentOffsetIfTextSelectionIsInactive()
         context.coordinator.onOpenUser = onOpenUser
+        context.coordinator.onOpenTiebaRoute = onOpenTiebaRoute
         context.coordinator.onPlainTextTap = onPlainTextTap
         context.coordinator.observeArtwork(
             imageNames: rendered.emoticonImageNames,
@@ -1200,6 +1215,7 @@ struct InlineContentText: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         weak var textView: InlineContentTextView?
         var onOpenUser: ((UserSummary) -> Void)?
+        var onOpenTiebaRoute: ((ExternalRoute) -> Void)?
         var onPlainTextTap: (() -> Void)?
         private var observedArtworkImageNames: Set<String> = []
         private var artworkNotificationToken: NSObjectProtocol?
@@ -1210,10 +1226,12 @@ struct InlineContentText: UIViewRepresentable {
 
         init(
             onOpenUser: ((UserSummary) -> Void)?,
-            onPlainTextTap: (() -> Void)?
+            onPlainTextTap: (() -> Void)?,
+            onOpenTiebaRoute: ((ExternalRoute) -> Void)?
         ) {
             self.onOpenUser = onOpenUser
             self.onPlainTextTap = onPlainTextTap
+            self.onOpenTiebaRoute = onOpenTiebaRoute
         }
 
         deinit {
@@ -1321,6 +1339,13 @@ struct InlineContentText: UIViewRepresentable {
                 }
                 return false
             }
+            // A supported Tieba page stays inside the reader; anything else keeps
+            // the previous hand-off to Safari or the official client.
+            if let route = ExternalRoute.parse(URL),
+               let onOpenTiebaRoute = self.onOpenTiebaRoute {
+                DispatchQueue.main.async { onOpenTiebaRoute(route) }
+                return false
+            }
             guard let safeURL = TiebaURL.webpage(URL.absoluteString) else { return false }
             UIApplication.shared.open(safeURL)
             return false
@@ -1400,7 +1425,8 @@ struct InlineContentText: UIViewRepresentable {
             }
         }
 
-        for block in blocks {
+        let expandedBlocks = TiebaLinkExtractor.extractLinks(from: blocks)
+        for block in expandedBlocks {
             switch block {
             case let .text(text):
                 appendHighlightedText(
@@ -1462,7 +1488,8 @@ struct InlineContentText: UIViewRepresentable {
                 result.append(Self.threadAuthorBadgeTitle)
             }
         }
-        for block in blocks {
+        let expandedBlocks = TiebaLinkExtractor.extractLinks(from: blocks)
+        for block in expandedBlocks {
             switch block {
             case let .text(text):
                 result.append(text)

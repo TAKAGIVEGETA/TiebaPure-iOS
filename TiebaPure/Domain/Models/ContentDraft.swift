@@ -136,6 +136,7 @@ enum ContentDraftImageBlobCodec {
     private static let version: UInt8 = 2
     private static let legacyJSONVersion: UInt8 = 1
     private static let headerSize = 8
+    static let emptyContainerByteCount = headerSize
     private static let frameHeaderSize = 8
     private static let maximumFrameBytes = 16 * 1_024 * 1_024
     private static let maximumUUIDBytes = 64
@@ -1287,4 +1288,60 @@ final class ContentDraftStore {
     func repairLegacyMetadataAndPruneAsync() async -> Bool {
         await persistence.repairLegacyMetadataAndPruneAsync()
     }
+
+    /// Every draft this account holds, newest first, for 我的草稿.
+    func summaries(accountID: String) async throws -> [ContentDraftSummary] {
+        let manifest = try await persistence.migrationManifest()
+        var summaries: [ContentDraftSummary] = []
+        for entry in manifest.entries where entry.accountID == accountID {
+            try Task.checkCancellation()
+            let record = try await persistence.migrationRecord(identity: entry.identity)
+            guard let target = try? JSONDecoder().decode(
+                ContentSubmissionTarget.self,
+                from: record.targetData
+            ), target.draftKey == record.targetKey else {
+                continue
+            }
+            summaries.append(
+                ContentDraftSummary(
+                    accountID: record.accountID,
+                    target: target,
+                    title: record.title,
+                    body: record.body,
+                    updatedAt: record.updatedAt,
+                    attachmentByteCount: entry.imagesByteCount,
+                    hasAttachments: entry.imagesByteCount
+                        > ContentDraftImageBlobCodec.emptyContainerByteCount
+                )
+            )
+        }
+        return summaries.sorted { $0.updatedAt > $1.updatedAt }
+    }
 }
+
+/// One stored draft as 我的草稿 needs it: where it would be posted, what it
+/// says, and how much attachment data it holds.
+struct ContentDraftSummary: Identifiable, Equatable, Sendable {
+    let accountID: String
+    let target: ContentSubmissionTarget
+    let title: String
+    let body: String
+    let updatedAt: Date
+    /// Encoded attachment size, header included. The list never decodes the
+    /// images themselves.
+    let attachmentByteCount: Int
+    /// Whether the draft actually carries at least one attachment, which the
+    /// raw byte count cannot say: an empty container is still a valid blob.
+    let hasAttachments: Bool
+
+    var id: String { "\(accountID)\u{1f}\(target.draftKey)" }
+
+    /// Attachment bytes without the container header, for display only.
+    var attachmentPayloadByteCount: Int {
+        max(attachmentByteCount - ContentDraftImageBlobCodec.emptyContainerByteCount, 0)
+    }
+
+    /// The same label the editor shows for this target.
+    var prompt: String { target.prompt }
+}
+

@@ -125,7 +125,7 @@ enum TiebaImageDecodePolicy {
 }
 
 enum TiebaAnimatedImageDecodePolicy {
-    static let maximumFrameCount = 120
+    static let maximumFrameCount = 512
     static let maximumDecodedPixels = 24_000_000
     static let defaultFrameDuration = 0.1
     static let minimumFrameDuration = 0.02
@@ -658,25 +658,221 @@ actor TiebaImagePipeline {
     }
 }
 
+/// Surfaces that hold an animation budget.
+enum TiebaAnimatedPlaybackPriority: Equatable {
+    case inline
+    case foreground
+}
+
+/// A surface that only exists for a moment — the 0.32s hero proxy or the
+/// full-screen placeholder that waits for the real bitmap — never needs
+/// playback.
+enum TiebaAnimatedImageStillFramePolicy {
+    static func still(_ image: UIImage?) -> UIImage? {
+        guard let image, let frames = image.images, frames.isEmpty == false else {
+            return image
+        }
+        return frames[0]
+    }
+}
+
+/// Bounded-budget governor for animated image playback.
+@MainActor
+enum TiebaAnimatedImagePlaybackGovernor {
+    static let maximumConcurrentAnimations = 2
+    static let maximumConcurrentForegroundAnimations = 2
+
+    private struct ActivePlayback {
+        let priority: TiebaAnimatedPlaybackPriority
+        let view: WeakImageViewBox
+    }
+
+    private static var activePlaybacks: [ObjectIdentifier: ActivePlayback] = [:]
+    private static var waitingViews: [
+        (view: WeakImageViewBox, token: ObjectIdentifier, priority: TiebaAnimatedPlaybackPriority)
+    ] = []
+
+    private static var inlinePlaybackCount: Int {
+        activePlaybacks.values.filter { $0.priority == .inline }.count
+    }
+
+    private static var foregroundPlaybackCount: Int {
+        activePlaybacks.values.filter { $0.priority == .foreground }.count
+    }
+
+    static func slotsAvailable() -> Bool {
+        foregroundPlaybackCount == 0
+            && inlinePlaybackCount < maximumConcurrentAnimations
+    }
+
+    @discardableResult
+    static func claimSlot(
+        for view: UIImageView,
+        priority: TiebaAnimatedPlaybackPriority = .inline
+    ) -> Bool {
+        let token = ObjectIdentifier(view)
+        if activePlaybacks[token] != nil {
+            activePlaybacks[token] = ActivePlayback(
+                priority: priority,
+                view: WeakImageViewBox(view)
+            )
+            return true
+        }
+        switch priority {
+        case .foreground:
+            suspendInlinePlayback()
+            guard foregroundPlaybackCount < maximumConcurrentForegroundAnimations else {
+                enqueueWaiter(view, token: token, priority: priority)
+                return false
+            }
+        case .inline:
+            guard foregroundPlaybackCount == 0,
+                  inlinePlaybackCount < maximumConcurrentAnimations else {
+                enqueueWaiter(view, token: token, priority: priority)
+                return false
+            }
+        }
+        activePlaybacks[token] = ActivePlayback(
+            priority: priority,
+            view: WeakImageViewBox(view)
+        )
+        return true
+    }
+
+    static func relinquishSlot(for view: UIImageView) {
+        let token = ObjectIdentifier(view)
+        activePlaybacks.removeValue(forKey: token)
+        waitingViews.removeAll { $0.token == token }
+        admitWaiters()
+    }
+
+    static func drainForTesting() {
+        activePlaybacks.removeAll()
+        waitingViews.removeAll()
+    }
+
+    private static func suspendInlinePlayback() {
+        let inlineTokens = activePlaybacks.compactMap { token, playback in
+            playback.priority == .inline ? token : nil
+        }
+        for token in inlineTokens {
+            guard let playback = activePlaybacks.removeValue(forKey: token),
+                  let view = playback.view.view else {
+                continue
+            }
+            view.stopAnimating()
+            enqueueWaiter(view, token: token, priority: .inline)
+        }
+    }
+
+    private static func enqueueWaiter(
+        _ view: UIImageView,
+        token: ObjectIdentifier,
+        priority: TiebaAnimatedPlaybackPriority
+    ) {
+        guard waitingViews.contains(where: { $0.token == token }) == false else { return }
+        waitingViews.append((WeakImageViewBox(view), token, priority))
+    }
+
+    private static func admitWaiters() {
+        waitingViews.removeAll { $0.view.view == nil }
+        admit(
+            priority: .foreground,
+            budget: maximumConcurrentForegroundAnimations - foregroundPlaybackCount
+        )
+        if foregroundPlaybackCount == 0 {
+            admit(
+                priority: .inline,
+                budget: maximumConcurrentAnimations - inlinePlaybackCount
+            )
+        }
+    }
+
+    private static func admit(priority: TiebaAnimatedPlaybackPriority, budget: Int) {
+        guard budget > 0 else { return }
+        var remaining = budget
+        var index = 0
+        while index < waitingViews.count, remaining > 0 {
+            let waiter = waitingViews[index]
+            guard waiter.priority == priority else {
+                index += 1
+                continue
+            }
+            waitingViews.remove(at: index)
+            guard let view = waiter.view.view, view.window != nil else { continue }
+            activePlaybacks[waiter.token] = ActivePlayback(
+                priority: priority,
+                view: waiter.view
+            )
+            remaining -= 1
+            view.startAnimating()
+        }
+    }
+}
+
+@MainActor
+private final class WeakImageViewBox {
+    weak var view: UIImageView?
+
+    init(_ view: UIImageView) {
+        self.view = view
+    }
+}
+
+@MainActor
+class TiebaGovernedAnimatedImageView: UIImageView {
+    var playbackPriority: TiebaAnimatedPlaybackPriority = .inline
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        syncAnimationPlayback()
+    }
+
+    func setGovernedImage(_ newImage: UIImage?) {
+        image = newImage
+        syncAnimationPlayback()
+    }
+
+    func syncAnimationPlayback() {
+        guard (image?.images?.count ?? 0) > 1 else {
+            stopAnimating()
+            TiebaAnimatedImagePlaybackGovernor.relinquishSlot(for: self)
+            return
+        }
+        guard window != nil else {
+            TiebaAnimatedImagePlaybackGovernor.relinquishSlot(for: self)
+            return
+        }
+        if TiebaAnimatedImagePlaybackGovernor.claimSlot(
+            for: self,
+            priority: playbackPriority
+        ) {
+            startAnimating()
+        } else {
+            stopAnimating()
+        }
+    }
+}
+
 private struct TiebaAnimatedUIImageView: UIViewRepresentable {
     let image: UIImage
     let contentMode: ContentMode
 
-    func makeUIView(context: Context) -> UIImageView {
-        let imageView = UIImageView()
+    func makeUIView(context: Context) -> TiebaGovernedAnimatedImageView {
+        let imageView = TiebaGovernedAnimatedImageView()
         imageView.clipsToBounds = true
         return imageView
     }
 
-    func updateUIView(_ imageView: UIImageView, context: Context) {
+    func updateUIView(_ imageView: TiebaGovernedAnimatedImageView, context: Context) {
         imageView.contentMode = contentMode == .fill ? .scaleAspectFill : .scaleAspectFit
-        imageView.image = image
-        imageView.startAnimating()
+        imageView.setGovernedImage(image)
     }
 
-    static func dismantleUIView(_ imageView: UIImageView, coordinator: Void) {
+    static func dismantleUIView(_ imageView: TiebaGovernedAnimatedImageView, coordinator: Void) {
         imageView.stopAnimating()
         imageView.image = nil
+        TiebaAnimatedImagePlaybackGovernor.relinquishSlot(for: imageView)
     }
 }
 
