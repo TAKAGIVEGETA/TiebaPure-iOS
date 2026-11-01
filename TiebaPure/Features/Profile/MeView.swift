@@ -251,7 +251,6 @@ struct MeView: View {
             if let account {
                 MyRepliesView(
                     account: account,
-                    userID: Int64(account.uid) ?? 0,
                     openThreadInParent: openThread
                 )
             }
@@ -438,19 +437,20 @@ struct MyRepliesView: View {
     @EnvironmentObject private var environment: AppEnvironment
 
     let account: Account
-    let userID: Int64
     let openThreadInParent: (ReaderSplitThreadRoute) -> Void
 
     @State private var replies: [OwnReply] = []
     @State private var nextPage = 1
     @State private var hasMore = true
+    @State private var visibility: UserContentVisibility = .visible
     @State private var isLoading = false
     @State private var didLoad = false
     @State private var errorMessage: String?
-    @State private var visibility: UserContentVisibility = .visible
     @State private var pendingDeletion: OwnReply?
     @State private var deletingReplyID: UInt64?
     @State private var actionError: String?
+
+    private var userID: Int64 { Int64(account.uid) ?? 0 }
 
     var body: some View {
         Group {

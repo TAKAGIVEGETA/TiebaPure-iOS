@@ -215,18 +215,13 @@ extension TiebaAPIService {
         OwnRepliesPage(replies: [], currentPage: page, hasMore: false, visibility: .visible)
     }
 
-    func deleteOwnReply(account: Account, reply: OwnReply) async throws {}
+    func deleteOwnReply(account: Account, reply: OwnReply) async throws {
+        throw UserProfileMutationError.unsupportedByService
+    }
 
     func subpostLocation(account: Account?, threadID: Int64, forumID: Int64, subpostID: UInt64) async throws -> SubpostLocation? {
         nil
     }
 }
 
-extension TiebaAPI: TiebaAPIService {
-    func userReplies(account: Account?, userID: Int64, page: Int) async throws -> OwnRepliesPage {
-        guard let account else {
-            return OwnRepliesPage(replies: [], currentPage: page, hasMore: false, visibility: .visible)
-        }
-        return try await userReplies(account: account, page: page)
-    }
-}
+extension TiebaAPI: TiebaAPIService {}

@@ -8,6 +8,10 @@ struct UserProfileRequestContext {
 
 enum UserProfileRequestFactory {
     static let ownThreadDeleteClientVersion = "12.25.1.0"
+    /// The mini/subapp client version the JSON reply feed answers to.
+    static let ownPostClientVersion = "7.2.0.0"
+    /// Category for the reply feed's own entries in 设置 → 诊断日志.
+    static let replyFeedLogCategory = "本人回帖"
 
     static func profileRequest(
         account: Account?,
@@ -322,6 +326,50 @@ extension TiebaAPI {
         return UserProfileMapper.threadsPage(from: response, page: page)
     }
 
+    /// The account's own replies (本人回帖).
+    ///
+    /// Same path as `userThreads`, but the JSON/mini form with `is_thread = 0`:
+    /// the reply list lives in `post_list[].content[]`, which the committed
+    /// protobuf schema has no field for, so the protobuf form can only ever
+    /// report thread-level rows. An empty `post_list` with `error_code = 0` is a
+    /// server-side answer, not a decode failure, so it is logged as such.
+    func userReplies(account: Account?, userID: Int64, page: Int) async throws -> OwnRepliesPage {
+        guard userID > 0 else { throw UserProfileAPIError.missingUserIdentifier }
+        let requestedPage = try TiebaRequestValuePolicy.unsignedPage(page)
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1_000)
+        var fields = requestBuilder.officialCommonFields(
+            bduss: account?.bduss,
+            baiduID: account?.baiduID,
+            clientVersion: UserProfileRequestFactory.ownPostClientVersion,
+            timestamp: timestamp
+        )
+        fields.merge([
+            "is_thread": "0",
+            "need_content": "1",
+            "pn": "\(requestedPage)",
+            "rn": "20",
+            "subapp_type": "mini",
+            "uid": "\(userID)"
+        ], uniquingKeysWith: { _, new in new })
+
+        let response = try await client.postForm(
+            .userPosts,
+            fields: fields,
+            headers: requestBuilder.officialHeaders(
+                baiduID: account?.baiduID,
+                clientVersion: UserProfileRequestFactory.ownPostClientVersion,
+                timestamp: timestamp
+            ),
+            signingSecret: "tiebaclient!!!",
+            as: UserPostFeedDTO.self
+        )
+        try TiebaResponseValidator.validate(
+            code: response.errorCode,
+            message: response.errorMessage
+        )
+        return UserProfileMapper.ownRepliesPage(from: response, page: page)
+    }
+
     func updateOwnProfile(account: Account, request: UserProfileEditRequest) async throws {
         let fields = try UserProfileRequestFactory.profileEditFields(
             account: account,
@@ -365,36 +413,11 @@ extension TiebaAPI {
         )
     }
 
-    /// The account's own replies (本人回帖).
-    func userReplies(account: Account, page: Int) async throws -> OwnRepliesPage {
-        let requestedPage = max(page, 1)
-        var fields = requestBuilder.officialCommonFields(
-            bduss: account.bduss,
-            baiduID: account.baiduID,
-            clientVersion: UserProfileRequestFactory.ownThreadDeleteClientVersion
-        )
-        fields.merge([
-            "is_thread": "0",
-            "need_content": "1",
-            "pn": "\(requestedPage)",
-            "rn": "20",
-            "uid": account.uid
-        ], uniquingKeysWith: { _, new in new })
-
-        let response = try await client.postForm(
-            .userPosts,
-            fields: fields,
-            headers: requestBuilder.officialHeaders(
-                baiduID: account.baiduID,
-                clientVersion: UserProfileRequestFactory.ownThreadDeleteClientVersion
-            ),
-            signingSecret: "tiebaclient!!!",
-            as: UserPostFeedDTO.self
-        )
-        try TiebaResponseValidator.validate(code: response.errorCode, message: response.errorMessage)
-        return UserProfileMapper.ownRepliesPage(from: response, page: requestedPage)
-    }
-
+    /// Deletes one of the account's own replies.
+    ///
+    /// The reply's own post ID is the target, and the thread ID is only context:
+    /// deleting the thread's first post here would remove the whole thread, so a
+    /// reply whose own ID is missing is refused before the request is built.
     func deleteOwnReply(account: Account, reply: OwnReply) async throws {
         try Task.checkCancellation()
         try UserProfileRequestFactory.validateReplyDeletionTarget(reply)
