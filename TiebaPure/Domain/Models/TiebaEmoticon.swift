@@ -151,22 +151,48 @@ enum TiebaEmoticon {
     }
 
     static func webSubmissionText(_ text: String) -> String {
-        guard let expression = tokenExpression else { return text }
+        guard text.isEmpty == false, let expression = tokenExpression else { return text }
         let nsText = text as NSString
         let matches = expression.matches(
             in: text,
             range: NSRange(location: 0, length: nsText.length)
         )
+        guard matches.isEmpty == false else { return text }
+
+        struct ValidMatch {
+            let match: NSTextCheckingResult
+            let canonicalName: String
+        }
+
+        var validMatches: [ValidMatch] = []
+        for match in matches {
+            guard let token = token(in: match, text: nsText),
+                  let imageName = imageName(for: token.name),
+                  let canonicalName = namesByImageName[imageName] else { continue }
+            validMatches.append(ValidMatch(match: match, canonicalName: canonicalName))
+        }
+
+        guard validMatches.isEmpty == false else { return text }
+
         let result = NSMutableString(string: text)
         // Replace backwards so earlier UTF-16 ranges remain valid.
-        for match in matches.reversed() {
-            let range = match.range(at: 1)
-            guard range.location != NSNotFound,
-                  let imageName = imageName(for: nsText.substring(with: range)),
-                  let name = namesByImageName[imageName] else { continue }
-            // The web posting protocol uses (#name), unlike the app's #(name).
-            result.replaceCharacters(in: match.range, with: "(#\(name))")
+        for index in stride(from: validMatches.count - 1, through: 0, by: -1) {
+            let current = validMatches[index]
+            if index + 1 < validMatches.count {
+                let next = validMatches[index + 1]
+                let gapLocation = current.match.range.location + current.match.range.length
+                let gapLength = next.match.range.location - gapLocation
+                if gapLength > 0 {
+                    let gapRange = NSRange(location: gapLocation, length: gapLength)
+                    let gapString = nsText.substring(with: gapRange)
+                    if gapString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        result.replaceCharacters(in: gapRange, with: "")
+                    }
+                }
+            }
+            result.replaceCharacters(in: current.match.range, with: "#(\(current.canonicalName))")
         }
+
         return result as String
     }
 

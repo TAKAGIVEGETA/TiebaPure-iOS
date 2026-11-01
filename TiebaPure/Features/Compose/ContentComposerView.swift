@@ -798,6 +798,9 @@ enum ContentComposerPolicy {
     static func appendingEmoticon(_ token: String, to text: String) -> String {
         guard text.isEmpty == false else { return token }
         guard let last = text.last, last.isWhitespace == false else { return text + token }
+        if last == ")" {
+            return text + token
+        }
         return text + " " + token
     }
 }

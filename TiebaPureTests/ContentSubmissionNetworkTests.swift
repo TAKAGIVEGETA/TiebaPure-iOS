@@ -5,10 +5,10 @@ import XCTest
 final class ContentSubmissionRequestFactoryTests: XCTestCase {
     func testWebReplyFieldsEncodeEveryConsecutiveEmoticonForAllReplyTargets() throws {
         let bodies = [
-            ("#(怒) #(怒) #(怒)", "(#怒) (#怒) (#怒)"),
-            ("#(怒)#(怒)#(怒)#(怒)", "(#怒)(#怒)(#怒)(#怒)"),
-            ("😀 前文 #(怒)\n#(滑稽)\t#(呼~) 后文  ", "😀 前文 (#怒)\n(#滑稽)\t(#呼~) 后文  "),
-            ("(#怒) [怒] #(不存在) #(pic,id,1,1)", "(#怒) [怒] #(不存在) #(pic,id,1,1)")
+            ("#(怒) #(怒) #(怒)", "#(怒)#(怒)#(怒)"),
+            ("#(怒)#(怒)#(怒)#(怒)", "#(怒)#(怒)#(怒)#(怒)"),
+            ("😀 前文 #(怒)\n#(滑稽)\t#(呼~) 后文  ", "😀 前文 #(怒)#(滑稽)#(呼~) 后文  "),
+            ("(#怒) [怒] #(不存在) #(pic,id,1,1)", "#(怒)#(怒) #(不存在) #(pic,id,1,1)")
         ]
         for kind in [ContentSubmissionKind.threadReply, .postReply, .subpostReply] {
             for (body, expected) in bodies {
@@ -48,7 +48,7 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
             now: Self.now
         )
         XCTAssertEqual(fields["title"], "标题 #(怒)")
-        XCTAssertEqual(fields["content"], "(#怒)(#怒)(#怒)")
+        XCTAssertEqual(fields["content"], "#(怒)#(怒)#(怒)")
     }
 
     func testThreadReplyWebFieldsOmitEveryFloorTargetAndPreserveImageInfo() throws {

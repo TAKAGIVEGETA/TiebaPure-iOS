@@ -67,6 +67,7 @@ final class ContentComposerPolicyTests: XCTestCase {
         XCTAssertEqual(ContentComposerPolicy.appendingEmoticon("#(滑稽)", to: ""), "#(滑稽)")
         XCTAssertEqual(ContentComposerPolicy.appendingEmoticon("#(滑稽)", to: "正文"), "正文 #(滑稽)")
         XCTAssertEqual(ContentComposerPolicy.appendingEmoticon("#(滑稽)", to: "正文\n"), "正文\n#(滑稽)")
+        XCTAssertEqual(ContentComposerPolicy.appendingEmoticon("#(滑稽)", to: "#(怒)"), "#(怒)#(滑稽)")
     }
 
     func testValidationMessageUsesSubmissionContract() {
