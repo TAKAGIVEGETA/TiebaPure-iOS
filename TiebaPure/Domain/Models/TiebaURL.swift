@@ -82,6 +82,10 @@ enum TiebaURL {
         return image("https://himg.bdimg.com/sys/portrait/item/\(text)")
     }
 
+    static func forumAvatar(_ value: String?) -> URL? {
+        avatar(value) ?? make(value)
+    }
+
     private static func isLocalOrPrivate(host: String) -> Bool {
         let value = host
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]."))

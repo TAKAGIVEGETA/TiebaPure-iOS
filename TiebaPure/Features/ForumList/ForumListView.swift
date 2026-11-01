@@ -7,12 +7,14 @@ struct ForumListView: View {
     private let openForumInParent: ((Forum) -> Void)?
     @ObservedObject private var blocklistStore = BlocklistStore.shared
     @State private var forums: [Forum] = []
+    @State private var followedStatuses: [Int64: FollowedForumStatus] = [:]
     @State private var isLoading = false
     @State private var didLoad = false
     @State private var errorMessage: String?
     @State private var searchText = ""
     @State private var requestGeneration = 0
     @State private var loadTask: Task<[Forum], Error>?
+    @State private var statusTask: Task<[FollowedForumStatus], Error>?
     @State private var selectedForum: ForumHubRoute?
     @State private var navigationSourceLifecycle = NavigationSourceLifecycleState()
 
@@ -61,9 +63,13 @@ struct ForumListView: View {
                                 Button {
                                     openForum(forum)
                                 } label: {
-                                    ForumRow(forum: forum)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .contentShape(Rectangle())
+                                    ForumRow(
+                                        forum: forum,
+                                        level: followedStatuses[forum.id]?.level ?? 0,
+                                        avatarURL: forum.avatarURL ?? followedStatuses[forum.id]?.avatarURL
+                                    )
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("进入\(forum.displayName)")
@@ -108,8 +114,10 @@ struct ForumListView: View {
         .onReceive(environment.accountStore.accountDidChange) { current in
             guard current?.sessionIdentity != account.sessionIdentity else { return }
             loadTask?.cancel()
+            statusTask?.cancel()
             requestGeneration += 1
             forums = []
+            followedStatuses = [:]
             selectedForum = nil
             dismiss()
         }
@@ -140,6 +148,7 @@ struct ForumListView: View {
                 isPresentingLocalDestination: selectedForum != nil
             ) else { return }
             loadTask?.cancel()
+            statusTask?.cancel()
             requestGeneration += 1
             isLoading = false
         }
@@ -215,6 +224,7 @@ struct ForumListView: View {
 
     private func reload() async {
         loadTask?.cancel()
+        statusTask?.cancel()
         requestGeneration += 1
         let generation = requestGeneration
         let requestedSession = account.sessionIdentity
@@ -223,7 +233,9 @@ struct ForumListView: View {
 
         do {
             let task = Task { try await environment.api.followedForums(account: account) }
+            let statuses = Task { try await environment.api.followedForumStatuses(account: account) }
             loadTask = task
+            statusTask = statuses
             let loaded = try await task.value
             guard generation == requestGeneration,
                   requestedSession == account.sessionIdentity else { return }
@@ -235,10 +247,24 @@ struct ForumListView: View {
                 accountID: account.id,
                 forums: forums
             )
+            do {
+                let reported = try await statuses.value
+                guard generation == requestGeneration,
+                      requestedSession == account.sessionIdentity else { return }
+                followedStatuses = Dictionary(
+                    reported.map { ($0.forumID, $0) },
+                    uniquingKeysWith: { _, latest in latest }
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                // If statuses fail to load, the followed forum list remains visible
+            }
         } catch is CancellationError {
             guard generation == requestGeneration,
                   requestedSession == account.sessionIdentity else { return }
             loadTask = nil
+            statusTask = nil
             isLoading = false
             return
         } catch {
@@ -249,6 +275,7 @@ struct ForumListView: View {
         guard generation == requestGeneration,
               requestedSession == account.sessionIdentity else { return }
         loadTask = nil
+        statusTask = nil
         isLoading = false
         didLoad = true
     }
@@ -265,6 +292,7 @@ struct ForumListView: View {
             }
         } else {
             forums.removeAll { SocialRelationshipState.sameForum($0, change.forum) }
+            followedStatuses.removeValue(forKey: change.forum.id)
         }
         didLoad = true
         errorMessage = nil
@@ -341,17 +369,33 @@ enum ForumListTapPolicy {
 
 private struct ForumRow: View {
     let forum: Forum
+    let level: Int
+    var avatarURL: URL? = nil
 
     var body: some View {
         ReaderCard {
             HStack(spacing: TiebaPureTheme.Spacing.sm) {
-                AvatarView(url: forum.avatarURL, title: forum.displayName)
+                AvatarView(url: avatarURL ?? forum.avatarURL, title: forum.displayName)
 
                 VStack(alignment: .leading, spacing: TiebaPureTheme.Spacing.xxs) {
-                    Text(forum.displayName)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                    HStack(spacing: TiebaPureTheme.Spacing.xs) {
+                        Text(forum.displayName)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        if level > 0 {
+                            Text("Lv.\(level)")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(TiebaPureTheme.ColorToken.primaryAccent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1.5)
+                                .background(
+                                    Capsule()
+                                        .fill(TiebaPureTheme.ColorToken.primaryAccent.opacity(0.12))
+                                )
+                        }
+                    }
 
                     MetadataLine(metadata, systemImage: "text.bubble")
                 }
@@ -365,7 +409,7 @@ private struct ForumRow: View {
             }
             .minTouchTarget()
         }
-        .accessibilityLabel("\(forum.displayName)，贴吧")
+        .accessibilityLabel("\(forum.displayName)，贴吧\(level > 0 ? "，等级 \(level)" : "")")
     }
 
     private var metadata: [String] {

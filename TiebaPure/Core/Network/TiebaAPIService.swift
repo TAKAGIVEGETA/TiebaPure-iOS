@@ -61,6 +61,7 @@ protocol TiebaAPIService {
     func forumMembership(account: Account, forum: Forum) async throws -> ForumMembership
     func setForumFollowed(account: Account, forum: Forum, followed: Bool) async throws -> ForumMembership
     func signForum(account: Account, forum: Forum) async throws -> ForumSignResult
+    func followedForumStatuses(account: Account) async throws -> [FollowedForumStatus]
     func accountThreadFavorites(account: Account, page: Int) async throws -> AccountThreadFavoritesPage
     func setAccountThreadFavorite(
         account: Account,
@@ -221,6 +222,10 @@ extension TiebaAPIService {
 
     func subpostLocation(account: Account?, threadID: Int64, forumID: Int64, subpostID: UInt64) async throws -> SubpostLocation? {
         nil
+    }
+
+    func followedForumStatuses(account: Account) async throws -> [FollowedForumStatus] {
+        []
     }
 }
 

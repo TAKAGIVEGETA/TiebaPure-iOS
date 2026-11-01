@@ -64,6 +64,22 @@ enum TiebaSocialRequestFactory {
         ]
     }
 
+    static func followedForumGuideFields(
+        tbs: String,
+        page: Int,
+        pageSize: Int = FollowedForumGuidePolicy.pageSize
+    ) throws -> [String: String] {
+        let resolvedTBS = tbs.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard resolvedTBS.isEmpty == false else { throw TiebaMutationError.missingTBS }
+        return [
+            "tbs": resolvedTBS,
+            "sort_type": "3",
+            "call_from": "3",
+            "page_no": "\(max(page, 1))",
+            "res_num": "\(max(pageSize, 1))"
+        ]
+    }
+
     static func likeFields(
         account: Account,
         tbs: String,
@@ -329,7 +345,113 @@ struct ForumMembershipResponseDTO: Decodable {
     }
 }
 
+enum FollowedForumGuidePolicy {
+    static let pageSize = 200
+    static let maximumPages = 5
+}
+
+struct FollowedForumGuideResponseDTO: Decodable {
+    struct ForumDTO: Decodable {
+        var forumID: Int64
+        var level: Int
+        var isSignedToday: Bool
+        var avatar: String?
+
+        enum CodingKeys: String, CodingKey {
+            case forumID = "forum_id"
+            case level = "level_id"
+            case isSignedToday = "is_sign"
+            case avatar
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            forumID = container.flexibleInt64(forKey: .forumID)
+            level = container.flexibleInt(forKey: .level)
+            isSignedToday = container.flexibleBool(forKey: .isSignedToday)
+            avatar = container.decodeStringIfPresent(forKey: .avatar)
+        }
+    }
+
+    var forums: [ForumDTO]
+    var hasMore: Bool
+    var errorCode: Int
+    var errorMessage: String
+
+    enum CodingKeys: String, CodingKey {
+        case forums = "like_forum"
+        case hasMore = "like_forum_has_more"
+        case errorCode = "error_code"
+        case errorMessage = "error_msg"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        forums = try container.decodeIfPresent([ForumDTO].self, forKey: .forums) ?? []
+        hasMore = container.flexibleBool(forKey: .hasMore)
+        errorCode = container.flexibleInt(forKey: .errorCode)
+        errorMessage = container.decodeStringIfPresent(forKey: .errorMessage) ?? ""
+    }
+}
+
 extension TiebaAPI {
+    func followedForumStatuses(account: Account) async throws -> [FollowedForumStatus] {
+        var statuses: [FollowedForumStatus] = []
+        var page = 1
+
+        while page <= FollowedForumGuidePolicy.maximumPages {
+            let response = try await followedForumGuidePage(account: account, page: page)
+            try TiebaResponseValidator.validate(code: response.errorCode, message: response.errorMessage)
+
+            let decoded = response.forums.compactMap { forum -> FollowedForumStatus? in
+                guard forum.forumID > 0 else { return nil }
+                return FollowedForumStatus(
+                    forumID: forum.forumID,
+                    level: max(forum.level, 0),
+                    isSignedToday: forum.isSignedToday,
+                    avatarURL: TiebaURL.forumAvatar(forum.avatar)
+                )
+            }
+
+            if page == 1, response.forums.isEmpty {
+                break
+            }
+
+            statuses.append(contentsOf: decoded)
+
+            guard response.hasMore, response.forums.isEmpty == false else { break }
+            page += 1
+        }
+
+        return statuses
+    }
+
+    private func followedForumGuidePage(
+        account: Account,
+        page: Int
+    ) async throws -> FollowedForumGuideResponseDTO {
+        let tbs = try await resolvedClientTBS(for: account)
+        let fields = try TiebaSocialRequestFactory.followedForumGuideFields(
+            tbs: tbs,
+            page: page
+        )
+        let data = try await client.postFormData(
+            .followedForumGuide,
+            fields: fields,
+            headers: [
+                "Cookie": account.minimalCookieHeader,
+                "Subapp-Type": "hybrid"
+            ]
+        )
+
+        return try JSONDecoder().decode(FollowedForumGuideResponseDTO.self, from: data)
+    }
+
+    private func resolvedClientTBS(for account: Account) async throws -> String {
+        let stored = account.tbs.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard stored.isEmpty else { return stored }
+        return try await refreshedClientTBS(for: account)
+    }
     func refreshedClientTBS(for account: Account) async throws -> String {
         try await refreshedClientTBS(for: account, allowsStoredFallback: true)
     }
@@ -631,5 +753,14 @@ private extension KeyedDecodingContainer {
         if let value = try? decode(Int.self, forKey: key) { return Int64(value) }
         if let value = try? decode(String.self, forKey: key) { return Int64(value) ?? 0 }
         return 0
+    }
+
+    func flexibleBool(forKey key: Key) -> Bool {
+        if let value = try? decode(Bool.self, forKey: key) { return value }
+        if let value = try? decode(Int.self, forKey: key) { return value != 0 }
+        if let value = try? decode(String.self, forKey: key) {
+            return value == "1" || value.lowercased() == "true"
+        }
+        return false
     }
 }
