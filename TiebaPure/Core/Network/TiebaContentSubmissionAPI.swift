@@ -1388,7 +1388,7 @@ private extension TiebaPostingBootstrapError {
     }
 }
 
-private extension Tieba_AddPostResponse {
+extension Tieba_AddPostResponse {
     func submissionReceipt(for target: ContentSubmissionTarget) throws -> ContentSubmissionReceipt {
         guard hasError else {
             throw ContentSubmissionError.outcomeUnknown
@@ -1451,7 +1451,8 @@ private func validateSubmissionStatus(
 private extension Tieba_SubmissionVerificationInfo {
     var requiresVerification: Bool {
         let value = needVcode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return (value.isEmpty == false && value != "0" && value != "false")
+        guard value != "0", value != "false" else { return false }
+        return (value.isEmpty == false)
             || SubmissionSecret(vcodeMd5) != nil
             || vcodePicURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }

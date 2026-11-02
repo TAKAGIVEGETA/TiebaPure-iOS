@@ -1532,6 +1532,34 @@ final class ContentSubmissionNetworkIntegrationTests: XCTestCase {
         XCTAssertEqual(SubmissionURLProtocol.count(path: "/c/c/post/add", id: harness.id), 0)
     }
 
+    func testAddPostSuccessWithZeroNeedVcodeAndMD5ReturnsValidReceiptWithoutVerification() throws {
+        var response = Tieba_AddPostResponse()
+        response.error.errorCode = 0
+        response.data.tid = "11159698206"
+        response.data.pid = "154098770050"
+        response.data.msg = "发送成功"
+        response.data.info.needVcode = "0"
+        response.data.info.vcodeMd5 = "9e2eoTC1D61FQcDCRZd9PzwxYX5zpsac0maJxphWNVUwL8NqdarnjnDFcFLu/rNq"
+
+        let target = ContentSubmissionTarget(
+            kind: .postReply,
+            forumID: 100,
+            forumName: "fixture",
+            forumDisplayName: "夹具吧",
+            threadID: 11159698206,
+            threadTitle: "夹具主题",
+            parentPostID: 154098770050,
+            parentFloor: 1,
+            subpostID: nil,
+            replyUserID: 42,
+            replyUserDisplayName: "被回复用户"
+        )
+
+        let receipt = try response.submissionReceipt(for: target)
+        XCTAssertEqual(receipt.threadID, 11159698206)
+        XCTAssertEqual(receipt.postID, 154098770050)
+    }
+
     private func makeAPI(mode: SubmissionStubMode) -> (api: TiebaAPI, id: String) {
         makeAPI(
             mode: mode,
