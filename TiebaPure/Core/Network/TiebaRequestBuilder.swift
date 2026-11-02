@@ -151,17 +151,33 @@ struct TiebaRequestBuilder {
         additionalFields: [String: String] = [:],
         fileContentType: String? = "application/octet-stream"
     ) throws -> (body: Data, contentType: String) {
-        let form = MultipartFormData(boundary: Self.boundary)
+        var fields = additionalFields
         if includeBDUSS, let bduss = account?.bduss, bduss.isEmpty == false {
-            form.addField(name: "BDUSS", value: bduss)
+            fields["BDUSS"] = bduss
         }
         if includeSToken, let stoken = account?.stoken, stoken.isEmpty == false {
-            form.addField(name: "stoken", value: stoken)
+            fields["stoken"] = stoken
         }
-        for key in additionalFields.keys.sorted() {
-            if let value = additionalFields[key], value.isEmpty == false {
+        return try multipart(
+            protobuf: protobuf,
+            fields: fields,
+            fileContentType: fileContentType
+        )
+    }
+
+    func multipart<Message: SwiftProtobuf.Message>(
+        protobuf: Message,
+        fields: [String: String],
+        fileContentType: String? = "application/octet-stream"
+    ) throws -> (body: Data, contentType: String) {
+        let form = MultipartFormData(boundary: Self.boundary)
+        for key in fields.keys.sorted() where key != "sign" {
+            if let value = fields[key] {
                 form.addField(name: key, value: value)
             }
+        }
+        if let sign = fields["sign"], sign.isEmpty == false {
+            form.addField(name: "sign", value: sign)
         }
         form.addFile(
             name: "data",

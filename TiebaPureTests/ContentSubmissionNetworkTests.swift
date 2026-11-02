@@ -58,9 +58,44 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
             timestamp: Self.timestamp
         )
         XCTAssertEqual(headers["x_bd_data_type"], "protobuf")
+        XCTAssertEqual(headers["Charset"], "UTF-8")
+        XCTAssertEqual(headers["c3_aid"], Self.bootstrap.identity.c3AID)
         XCTAssertTrue(headers["Cookie"]?.contains("BDUSS=\(Self.account.bduss)") == true)
         XCTAssertTrue(headers["Cookie"]?.contains("ka=open") == true)
+        XCTAssertTrue(headers["cookie"]?.contains("BAIDUZID:\(Self.bootstrap.zID)") == true)
         XCTAssertEqual(headers["client_user_token"], Self.account.uid)
+    }
+
+    func testAppReplyMultipartFieldsProducesSortedCommonFieldsAndSignature() {
+        let fields = TiebaContentSubmissionRequestFactory.appReplyMultipartFields(
+            account: Self.account,
+            bootstrap: Self.bootstrap,
+            now: Self.now
+        )
+        XCTAssertEqual(fields["BDUSS"], Self.account.bduss)
+        XCTAssertEqual(fields["stoken"], Self.account.stoken)
+        XCTAssertEqual(fields["_client_type"], "2")
+        XCTAssertEqual(fields["_client_version"], "12.35.1.0")
+        XCTAssertEqual(fields["brand"], "Samsung")
+        XCTAssertEqual(fields["model"], "SM-S9180")
+        XCTAssertEqual(fields["c3_aid"], Self.bootstrap.identity.c3AID)
+        XCTAssertEqual(fields["android_id"], Self.bootstrap.identity.androidID)
+        XCTAssertEqual(fields["cuid"], Self.bootstrap.identity.cuidGalaxy2)
+        XCTAssertEqual(fields["cuid_galaxy2"], Self.bootstrap.identity.cuidGalaxy2)
+        XCTAssertEqual(fields["z_id"], Self.bootstrap.zID)
+        XCTAssertEqual(fields["sample_id"], Self.bootstrap.sampleID)
+        XCTAssertEqual(fields["_client_id"], Self.bootstrap.clientID)
+
+        guard let signature = fields["sign"] else {
+            XCTFail("Missing signature")
+            return
+        }
+        XCTAssertFalse(signature.isEmpty)
+
+        var fieldsWithoutSign = fields
+        fieldsWithoutSign.removeValue(forKey: "sign")
+        let expectedSignature = TiebaFormSigner.sign(fields: fieldsWithoutSign, secret: "tiebaclient!!!")
+        XCTAssertEqual(signature, expectedSignature)
     }
 
     func testThreadReplyWebFieldsOmitEveryFloorTargetAndPreserveImageInfo() throws {
@@ -302,6 +337,18 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
         stoken: "stoken",
         baiduID: "baiduid",
         tbs: "tbs"
+    )
+
+    private static let bootstrap = TiebaPostingBootstrapResult(
+        identity: TiebaPostingIdentity(
+            androidID: "0123456789abcdef",
+            uuid: "00112233-4455-4677-8899-aabbccddeeff",
+            cuidGalaxy2: "submission-network-test",
+            c3AID: "fixture-c3-aid"
+        ),
+        clientID: "fixture-client-id",
+        sampleID: "fixture-sample-id",
+        zID: "fixture-z-id"
     )
 
     private static let now = Date(timeIntervalSince1970: 1_700_000_000)

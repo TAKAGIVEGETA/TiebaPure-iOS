@@ -139,4 +139,36 @@ final class MultipartFormDataTests: XCTestCase {
         XCTAssertEqual(common.scrH, 2556)
         XCTAssertEqual(common.scrDip, 3)
     }
+
+    func testRequestBuilderOrdersFieldsAlphabeticallyAndSignBeforeData() throws {
+        let builder = TiebaRequestBuilder(
+            screenScale: 3,
+            screenWidth: 1179,
+            screenHeight: 2556,
+            clientID: "client"
+        )
+        var request = Tieba_CommonRequest()
+        request.clientType = 2
+
+        let fields: [String: String] = [
+            "z_id": "z123",
+            "a_field": "a123",
+            "m_field": "m123",
+            "sign": "MYSIGNATURE"
+        ]
+
+        let multipart = try builder.multipart(protobuf: request, fields: fields)
+
+        let aRange = try XCTUnwrap(multipart.body.range(of: Data("name=\"a_field\"".utf8)))
+        let mRange = try XCTUnwrap(multipart.body.range(of: Data("name=\"m_field\"".utf8)))
+        let zRange = try XCTUnwrap(multipart.body.range(of: Data("name=\"z_id\"".utf8)))
+        let signRange = try XCTUnwrap(multipart.body.range(of: Data("name=\"sign\"".utf8)))
+        let dataRange = try XCTUnwrap(multipart.body.range(of: Data("name=\"data\"".utf8)))
+
+        XCTAssertTrue(aRange.lowerBound < mRange.lowerBound)
+        XCTAssertTrue(mRange.lowerBound < zRange.lowerBound)
+        XCTAssertTrue(zRange.lowerBound < signRange.lowerBound)
+        XCTAssertTrue(signRange.lowerBound < dataRange.lowerBound)
+    }
 }
+

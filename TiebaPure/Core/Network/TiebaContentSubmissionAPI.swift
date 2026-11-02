@@ -570,16 +570,16 @@ enum TiebaContentSubmissionRequestFactory {
         common.clientVersion = clientVersion
         common.clientID = bootstrap.clientID
         common.phoneImei = "000000000000000"
-        common.from = "1008621x"
+        common.from = "tieba"
         common.cuid = bootstrap.identity.cuidGalaxy2
         common.timestamp = timestamp
-        common.model = "SM-G988N"
+        common.model = "SM-S9180"
         common.bduss = account.bduss
         common.tbs = tbs
         common.netType = 1
         common.pversion = "1.0.3"
         common.osVersion = "9"
-        common.brand = "samsung"
+        common.brand = "Samsung"
         common.legoLibVersion = "3.0.0"
         common.applist = ""
         common.stoken = account.stoken
@@ -605,9 +605,9 @@ enum TiebaContentSubmissionRequestFactory {
         common.startType = 1
         common.idfv = "0"
         common.extra = ""
-        common.userAgent = "tieba/\(clientVersion) skin/default TiebaPure/\(appVersion)"
+        common.userAgent = "Mozilla/5.0 (Linux; Android 12; SM-S9180 Build/W528JS; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/95.0.4638.74 Safari/537.36 tieba/\(clientVersion)"
         common.personalizedRecSwitch = 1
-        common.deviceScore = "0.4"
+        common.deviceScore = "161791.22"
         return common
     }
 
@@ -657,7 +657,7 @@ enum TiebaContentSubmissionRequestFactory {
         switch request.target.kind {
         case .threadReply:
             data.barrageTime = "0"
-            data.postFrom = "3"
+            data.postFrom = "13"
         case .postReply:
             try applyFloorReplyTarget(request.target, to: &data)
             data.postFrom = "0"
@@ -778,22 +778,92 @@ enum TiebaContentSubmissionRequestFactory {
         ]
     }
 
+    static func appReplyMultipartFields(
+        account: Account,
+        bootstrap: TiebaPostingBootstrapResult,
+        now: Date = Date()
+    ) -> [String: String] {
+        let timestamp = Int64(now.timeIntervalSince1970 * 1_000)
+        let firstRunTimestamp = max(1, timestamp - 30 * 86_400)
+        let dateComponents = Calendar(identifier: .gregorian).dateComponents(
+            [.year, .month, .day],
+            from: now
+        )
+        let eventDay = [dateComponents.year, dateComponents.month, dateComponents.day]
+            .compactMap { $0.map(String.init) }
+            .joined()
+
+        let baiduID = (account.baiduID?.isEmpty == false ? account.baiduID : bootstrap.identity.cuidGalaxy2) ?? ""
+
+        var fields: [String: String] = [
+            "BDUSS": account.bduss,
+            "_client_id": bootstrap.clientID,
+            "_client_type": "2",
+            "_client_version": clientVersion,
+            "_phone_imei": "000000000000000",
+            "active_timestamp": String(firstRunTimestamp),
+            "android_id": bootstrap.identity.androidID,
+            "baiduid": baiduID,
+            "brand": "Samsung",
+            "c3_aid": bootstrap.identity.c3AID,
+            "cmode": "1",
+            "cuid": bootstrap.identity.cuidGalaxy2,
+            "cuid_galaxy2": bootstrap.identity.cuidGalaxy2,
+            "cuid_gid": "",
+            "device_score": "161791.22",
+            "event_day": eventDay,
+            "extra": "",
+            "first_install_time": String(firstRunTimestamp),
+            "framework_ver": "3340042",
+            "from": "tieba",
+            "is_teenager": "0",
+            "last_update_time": String(firstRunTimestamp),
+            "mac": "02:00:00:00:00:00",
+            "model": "SM-S9180",
+            "naws_game_ver": "1038000",
+            "net_type": "1",
+            "oaid": "{\"v\":\"GZRTCNBZMM4TCLJWGYYTSLJUMI4WGLJZMQ3WGLJXMM4WIMBVMUYGCYZTGI\",\"isTrackLimited\":0,\"sc\":0,\"sup\":1}",
+            "personalized_rec_switch": "1",
+            "sample_id": bootstrap.sampleID,
+            "sdk_ver": "2.34.0",
+            "start_scheme": "",
+            "start_type": "1",
+            "stoken": account.stoken,
+            "timestamp": String(timestamp),
+            "z_id": bootstrap.zID
+        ]
+
+        let signature = TiebaFormSigner.sign(fields: fields, secret: "tiebaclient!!!")
+        fields["sign"] = signature
+        return fields
+    }
+
     static func postProtobufHeaders(
         account: Account? = nil,
         bootstrap: TiebaPostingBootstrapResult,
         timestamp: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)
     ) -> [String: String] {
-        var headers = appHeaders(bootstrap: bootstrap, timestamp: timestamp)
-        headers["x_bd_data_type"] = "protobuf"
+        var headers: [String: String] = [
+            "Charset": "UTF-8",
+            "Accept": "*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Pragma": "no-cache",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; SM-S9180 Build/W528JS; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/95.0.4638.74 Safari/537.36 tieba/\(clientVersion)",
+            "client_logid": String(timestamp),
+            "cuid": bootstrap.identity.cuidGalaxy2,
+            "cuid_galaxy2": bootstrap.identity.cuidGalaxy2,
+            "cuid_gid": "",
+            "c3_aid": bootstrap.identity.c3AID,
+            "x_bd_data_type": "protobuf"
+        ]
         if let account, account.bduss.isEmpty == false {
+            headers["client_user_token"] = account.uid
+            headers["cookie"] = "BAIDUZID:\(bootstrap.zID); ka:open; CUID:\(bootstrap.identity.cuidGalaxy2); TBBRAND:SM-S9180"
             var cookieParts = ["ka=open", "BDUSS=\(account.bduss)"]
             if let baiduID = account.baiduID, baiduID.isEmpty == false {
                 cookieParts.append("BAIDUID=\(baiduID)")
             }
             headers["Cookie"] = cookieParts.joined(separator: "; ")
-            if account.uid.isEmpty == false {
-                headers["client_user_token"] = account.uid
-            }
         }
         return headers
     }
@@ -980,19 +1050,14 @@ extension TiebaAPI {
             requestBuilder: requestBuilder
         )
 
-        let additionalFields: [String: String] = [
-            "_client_id": requestBuilder.clientID,
-            "_client_type": "2",
-            "_client_version": TiebaContentSubmissionRequestFactory.clientVersion,
-            "net_type": "1"
-        ]
+        let fields = TiebaContentSubmissionRequestFactory.appReplyMultipartFields(
+            account: account,
+            bootstrap: bootstrapResult
+        )
 
         let multipart = try requestBuilder.multipart(
             protobuf: protobuf,
-            account: account,
-            includeSToken: true,
-            includeBDUSS: true,
-            additionalFields: additionalFields
+            fields: fields
         )
         let headers = TiebaContentSubmissionRequestFactory.postProtobufHeaders(
             account: account,
