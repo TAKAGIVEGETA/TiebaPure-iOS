@@ -586,11 +586,10 @@ enum TiebaContentSubmissionRequestFactory {
         common.tbs = tbs
         common.netType = 1
         common.pversion = "1.0.3"
-        common.osVersion = "9"
+        common.osVersion = "32"
         common.brand = "Samsung"
         common.legoLibVersion = "3.0.0"
         common.applist = ""
-        common.stoken = account.stoken
         common.zID = bootstrap.zID
         common.cuidGalaxy2 = bootstrap.identity.cuidGalaxy2
         common.c3Aid = bootstrap.identity.c3AID
@@ -846,7 +845,6 @@ enum TiebaContentSubmissionRequestFactory {
             "sdk_ver": "2.34.0",
             "start_scheme": "",
             "start_type": "1",
-            "stoken": account.stoken,
             "timestamp": String(timestamp),
             "z_id": bootstrap.zID
         ]

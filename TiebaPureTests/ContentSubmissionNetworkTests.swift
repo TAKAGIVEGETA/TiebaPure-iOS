@@ -75,7 +75,7 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
         )
         let expectedBase64AndroidID = Self.bootstrap.identity.androidID.data(using: .utf8)?.base64EncodedString()
         XCTAssertEqual(fields["BDUSS"], Self.account.bduss)
-        XCTAssertEqual(fields["stoken"], Self.account.stoken)
+        XCTAssertNil(fields["stoken"])
         XCTAssertEqual(fields["_client_type"], "2")
         XCTAssertEqual(fields["_client_version"], "12.35.1.0")
         XCTAssertEqual(fields["brand"], "Samsung")
