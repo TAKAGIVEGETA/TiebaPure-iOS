@@ -1560,6 +1560,36 @@ final class ContentSubmissionNetworkIntegrationTests: XCTestCase {
         XCTAssertEqual(receipt.postID, 154098770050)
     }
 
+    func testAddPostSuccessWithNeedVcodeOneAndPostIDReturnsValidReceiptWithoutVerification() throws {
+        var response = Tieba_AddPostResponse()
+        response.error.errorCode = 0
+        response.data.tid = "11159702859"
+        response.data.pid = "154098971538"
+        response.data.msg = "发送成功"
+        response.data.info.needVcode = "1"
+        response.data.info.vcodeMd5 = "59f2AzC8OlR1qFDtWqOzNqBwHU3Xi226nFHU6HXcqBMm1izDAzDBozgpNUP5ZWwc"
+        response.data.info.vcodeType = "1"
+        response.data.info.vcodePicURL = ""
+
+        let target = ContentSubmissionTarget(
+            kind: .subpostReply,
+            forumID: 100,
+            forumName: "fixture",
+            forumDisplayName: "夹具吧",
+            threadID: 11159702859,
+            threadTitle: "夹具主题",
+            parentPostID: 154098971000,
+            parentFloor: 1,
+            subpostID: 154098971500,
+            replyUserID: 42,
+            replyUserDisplayName: "被回复用户"
+        )
+
+        let receipt = try response.submissionReceipt(for: target)
+        XCTAssertEqual(receipt.threadID, 11159702859)
+        XCTAssertEqual(receipt.postID, 154098971538)
+    }
+
     func testAddPostWithVerificationCodeIncludesVcodeAndMd5() throws {
         var request = Self.textReply
         request.verificationCode = "ABCD"

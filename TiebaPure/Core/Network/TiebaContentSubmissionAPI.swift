@@ -1413,10 +1413,12 @@ extension Tieba_AddPostResponse {
             throw ContentSubmissionError.outcomeUnknown
         }
         let messages = submissionMessages
+        let returnedPostID = positiveUInt64(data.pid)
         try validateSubmissionStatus(
             error: error,
             verification: data.info,
-            messages: messages
+            messages: messages,
+            postID: returnedPostID
         )
         // AddPost success responses commonly contain only Error{error_code=0}.
         // The requested thread is therefore the stable source of the receipt;
@@ -1427,7 +1429,7 @@ extension Tieba_AddPostResponse {
         }
         return ContentSubmissionReceipt(
             threadID: threadID,
-            postID: positiveUInt64(data.pid)
+            postID: returnedPostID
         )
     }
 
@@ -1445,15 +1447,19 @@ extension Tieba_AddPostResponse {
 private func validateSubmissionStatus(
     error: Tieba_Error,
     verification: Tieba_SubmissionVerificationInfo,
-    messages: [String]
+    messages: [String],
+    postID: UInt64? = nil
 ) throws {
     let code = Int(error.errorCode)
     let message = messages.first ?? ""
     if TiebaAPIError.isSessionExpired(code: code, message: message) {
         throw ContentSubmissionError.sessionExpired
     }
+    if code == 0, (postID != nil || messages.contains("发送成功")) {
+        return
+    }
     if verification.requiresVerification
-        || messages.contains(where: \.requiresSubmissionVerification) {
+        || (code != 0 && messages.contains(where: \.requiresSubmissionVerification)) {
         let challenge = ContentSubmissionChallenge(
             message: message,
             verificationMD5: SubmissionSecret(verification.vcodeMd5),
@@ -1470,10 +1476,11 @@ private func validateSubmissionStatus(
 private extension Tieba_SubmissionVerificationInfo {
     var requiresVerification: Bool {
         let value = needVcode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard value != "0", value != "false" else { return false }
-        return (value.isEmpty == false)
-            || SubmissionSecret(vcodeMd5) != nil
-            || vcodePicURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard value != "0", value != "false", value.isEmpty == false else { return false }
+        guard vcodePicURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        return true
     }
 }
 
