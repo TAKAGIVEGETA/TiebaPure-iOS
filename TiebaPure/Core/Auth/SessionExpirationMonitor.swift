@@ -303,8 +303,17 @@ struct SessionMonitoringTiebaAPI: TiebaAPIService {
         kind: MessageKind,
         page: Int
     ) async throws -> MessagesPage {
+        try await messages(account: account, kind: kind, page: page, cursor: nil)
+    }
+
+    func messages(
+        account: Account,
+        kind: MessageKind,
+        page: Int,
+        cursor: String?
+    ) async throws -> MessagesPage {
         try await monitored(account: account) {
-            try await base.messages(account: account, kind: kind, page: page)
+            try await base.messages(account: account, kind: kind, page: page, cursor: cursor)
         }
     }
 

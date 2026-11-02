@@ -651,12 +651,30 @@ struct FixtureTiebaAPI: TiebaAPIService {
     }
 
     func messages(account: Account, kind: MessageKind, page: Int) async throws -> MessagesPage {
+        try await messages(account: account, kind: kind, page: page, cursor: nil)
+    }
+
+    func messages(
+        account: Account,
+        kind: MessageKind,
+        page: Int,
+        cursor: String?
+    ) async throws -> MessagesPage {
         _ = account
         try await prepare(page: page)
-        guard scenario != .empty, page == 1 else {
+        let isFirstPage = (cursor == nil || cursor == "0") && page == 1
+        guard scenario != .empty, isFirstPage else {
             return MessagesPage(items: [], currentPage: page, hasMore: false)
         }
-        let items = kind == .reply ? Self.replyMessages : Self.atMessages
+        let items: [MessageItem]
+        switch kind {
+        case .reply:
+            items = Self.replyMessages
+        case .at:
+            items = Self.atMessages
+        case .agree:
+            items = Self.agreeMessages
+        }
         return MessagesPage(items: items, currentPage: page, hasMore: false)
     }
 
@@ -984,6 +1002,22 @@ struct FixtureTiebaAPI: TiebaAPIService {
             forumName: forum.name,
             isFloorReply: false,
             createdAt: Date(timeIntervalSince1970: 1_700_000_600)
+        )
+    ]
+
+    static let agreeMessages = [
+        MessageItem(
+            id: "agree-9901-1001-2002-2-1700000650",
+            kind: .agree,
+            author: UserSummary(id: 2, name: "fixture_agree", displayName: "点赞我的用户", portrait: ""),
+            content: "这是一条被点赞的合成回复内容。",
+            threadID: 1001,
+            postID: 2002,
+            threadTitle: threads[0].title,
+            forumName: forum.name,
+            isFloorReply: false,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_650),
+            cursorID: "9901"
         )
     ]
 

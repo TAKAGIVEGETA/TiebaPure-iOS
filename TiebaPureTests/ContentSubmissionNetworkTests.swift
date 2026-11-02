@@ -1596,21 +1596,12 @@ final class ContentSubmissionNetworkIntegrationTests: XCTestCase {
         request.verificationMD5 = SubmissionSecret("test-md5-value")
         request.verificationType = "1"
 
-        let bootstrap = TiebaPostingBootstrapResult(
-            clientID: "fixture-client-id",
-            zID: "fixture-zid",
-            sampleID: "fixture-sample",
-            identity: TiebaClientIdentity(
-                cuidGalaxy2: "fixture-cuid",
-                c3AID: "fixture-c3aid",
-                androidID: "fixture-android-id"
-            )
-        )
+        let bootstrap = Self.bootstrap
         let requestBuilder = TiebaRequestBuilder(
-            baseURL: URL(string: "https://tiebac.baidu.com")!,
+            screenScale: 3.0,
             screenWidth: 1080,
             screenHeight: 2400,
-            screenScale: 3.0
+            clientID: "fixture-client-id"
         )
 
         let addPostReq = try TiebaContentSubmissionRequestFactory.addPost(

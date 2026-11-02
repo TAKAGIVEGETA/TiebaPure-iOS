@@ -97,6 +97,79 @@ final class MessageAPITests: XCTestCase {
         XCTAssertEqual(item.forumName, "显卡")
     }
 
+    func testAgreeMessagesPostsToAgreeMePathAndMapsAgreeList() async throws {
+        let api = makeAPI { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.host, "c.tieba.baidu.com")
+            XCTAssertEqual(url.path, "/c/u/feed/agreeme")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Content-Type"),
+                "application/x-www-form-urlencoded"
+            )
+            XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "bdtb for Android 8.2.2")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "cuid"), self.builder.miniCUID)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "ka=open")
+
+            var fields = try Self.formFields(request)
+            XCTAssertEqual(fields["BDUSS"], "bduss")
+            XCTAssertEqual(fields["id"], "0")
+            XCTAssertEqual(fields["rn"], "15")
+            XCTAssertEqual(fields["client_type"], "2")
+            XCTAssertEqual(fields["_client_type"], "2")
+            XCTAssertEqual(fields["_client_version"], "8.2.2")
+            XCTAssertEqual(fields["subapp_type"], "client")
+            XCTAssertEqual(fields["stErrorNums"], "0")
+            let sign = try XCTUnwrap(fields.removeValue(forKey: "sign"))
+            XCTAssertEqual(sign, TiebaFormSigner.sign(fields: fields, secret: "tiebaclient!!!"))
+
+            return Self.agreeResponseJSON
+        }
+
+        let page = try await api.messages(account: makeAccount(), kind: .agree, page: 1)
+
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.currentPage, 1)
+        XCTAssertEqual(page.nextCursor, "94971672")
+        XCTAssertEqual(page.items.count, 2)
+
+        let first = try XCTUnwrap(page.items.first)
+        XCTAssertEqual(first.kind, .agree)
+        XCTAssertEqual(first.author.id, 4845445120)
+        XCTAssertEqual(first.author.displayNameResolved, "赞我的人")
+        XCTAssertEqual(first.author.portrait, "tb.1.agree")
+        XCTAssertEqual(first.content, "被点赞的评论文本")
+        XCTAssertEqual(first.threadID, 11139972915)
+        XCTAssertEqual(first.postID, 154077320917)
+        XCTAssertEqual(first.threadTitle, "测试帖子标题")
+        XCTAssertEqual(first.forumName, "利物浦")
+        XCTAssertFalse(first.isFloorReply)
+        XCTAssertEqual(first.cursorID, "97111402")
+
+        let floor = try XCTUnwrap(page.items.last)
+        XCTAssertEqual(floor.kind, .agree)
+        XCTAssertTrue(floor.isFloorReply)
+        // Floor reply must jump to the quoteID (parent post)
+        XCTAssertEqual(floor.postID, 153693841266)
+        XCTAssertEqual(floor.cursorID, "94971672")
+    }
+
+    func testAgreeMessagesSendsCursorWhenLoadingNextPage() async throws {
+        let api = makeAPI { request in
+            let fields = try Self.formFields(request)
+            XCTAssertEqual(fields["id"], "94971672")
+            return Self.agreeResponseJSON
+        }
+
+        let page = try await api.messages(
+            account: makeAccount(),
+            kind: .agree,
+            page: 2,
+            cursor: "94971672"
+        )
+        XCTAssertEqual(page.items.count, 2)
+    }
+
     func testMessagesMapsExpiredSessionBusinessCode() async throws {
         let api = makeAPI { _ in
             // Business failures are validated before requiring the successful
@@ -435,6 +508,68 @@ final class MessageAPITests: XCTestCase {
         }
       ],
       "page": {"current_page": "1", "has_more": "0", "has_prev": "0"}
+    }
+    """.utf8)
+
+    private static let agreeResponseJSON = Data("""
+    {
+      "error_code": "0",
+      "error_msg": "",
+      "has_more": "1",
+      "agree_list": [
+        {
+          "id": "97111402",
+          "thread_id": "11139972915",
+          "post_id": "154077320917",
+          "type": "1",
+          "is_del": "0",
+          "time": "1793112767",
+          "thread_info": {
+            "title": "测试帖子标题",
+            "fname": "利物浦",
+            "id": "11139972915"
+          },
+          "agreeer": {
+            "id": "4845445120",
+            "name": "raw_agreeer",
+            "name_show": "赞我的人",
+            "portrait": "tb.1.agree?t=1"
+          },
+          "post_info": {
+            "id": "154077320917",
+            "quote_id": "0",
+            "content": [
+              {"text": "被点赞的评论文本"}
+            ]
+          }
+        },
+        {
+          "id": "94971672",
+          "thread_id": "10846864855",
+          "post_id": "153693853059",
+          "type": "2",
+          "is_del": "0",
+          "time": "1793349272",
+          "thread_info": {
+            "title": "楼中楼所属主题",
+            "fname": "曼联",
+            "id": "10846864855"
+          },
+          "agreeer": {
+            "id": "5362722066",
+            "name": "raw_floor_agreeer",
+            "name_show": "楼中楼点赞人",
+            "portrait": "tb.1.floor_agree"
+          },
+          "post_info": {
+            "id": "153693853059",
+            "quote_id": "153693841266",
+            "content": [
+              {"text": "被点赞的楼中楼发言"}
+            ]
+          }
+        }
+      ]
     }
     """.utf8)
 }

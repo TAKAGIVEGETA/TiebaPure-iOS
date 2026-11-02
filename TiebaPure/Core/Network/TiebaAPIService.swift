@@ -70,6 +70,7 @@ protocol TiebaAPIService {
         favorited: Bool
     ) async throws
     func messages(account: Account, kind: MessageKind, page: Int) async throws -> MessagesPage
+    func messages(account: Account, kind: MessageKind, page: Int, cursor: String?) async throws -> MessagesPage
     func setPostLiked(
         account: Account,
         threadID: Int64,
@@ -226,6 +227,10 @@ extension TiebaAPIService {
 
     func followedForumStatuses(account: Account) async throws -> [FollowedForumStatus] {
         []
+    }
+
+    func messages(account: Account, kind: MessageKind, page: Int, cursor: String?) async throws -> MessagesPage {
+        try await messages(account: account, kind: kind, page: page)
     }
 }
 

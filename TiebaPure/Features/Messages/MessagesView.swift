@@ -10,6 +10,7 @@ struct MessagesView: View {
     @State private var kind: MessageKind = .reply
     @State private var items: [MessageItem] = []
     @State private var nextPage = 1
+    @State private var nextCursor: String?
     @State private var hasMore = true
     @State private var isLoading = false
     @State private var didLoad = false
@@ -86,9 +87,10 @@ struct MessagesView: View {
         Picker("消息类型", selection: $kind) {
             Text("回复我的").tag(MessageKind.reply)
             Text("@我的").tag(MessageKind.at)
+            Text("赞我的").tag(MessageKind.agree)
         }
         .pickerStyle(.segmented)
-        .frame(maxWidth: 320)
+        .frame(maxWidth: 360)
         .frame(minHeight: 44)
         .padding(.horizontal, TiebaPureTheme.Spacing.md)
         .padding(.vertical, TiebaPureTheme.Spacing.xs)
@@ -101,7 +103,7 @@ struct MessagesView: View {
             ReaderStateView(
                 kind: .empty,
                 title: "登录后查看消息",
-                message: "登录后可以在这里查看回复我的和@我的消息。",
+                message: "登录后可以在这里查看回复、@和点赞消息。",
                 systemImage: "person.crop.circle.badge.exclamationmark"
             )
             .accessibilityIdentifier("messages-login-prompt")
@@ -207,13 +209,25 @@ struct MessagesView: View {
     }
 
     private var emptyTitle: String {
-        kind == .reply ? "还没有收到回复" : "还没有人@我"
+        switch kind {
+        case .reply:
+            return "还没有收到回复"
+        case .at:
+            return "还没有人@我"
+        case .agree:
+            return "还没有收到赞"
+        }
     }
 
     private var emptyMessage: String {
-        kind == .reply
-            ? "别人回复你的帖子或楼层后会显示在这里。"
-            : "别人在帖子里@你后会显示在这里。"
+        switch kind {
+        case .reply:
+            return "别人回复你的帖子或楼层后会显示在这里。"
+        case .at:
+            return "别人在帖子里@你后会显示在这里。"
+        case .agree:
+            return "别人点赞你的帖子或楼层后会显示在这里。"
+        }
     }
 
     private var messageIsActive: Binding<Bool> {
@@ -233,6 +247,7 @@ struct MessagesView: View {
         requestGeneration += 1
         items = []
         nextPage = 1
+        nextCursor = nil
         hasMore = true
         isLoading = false
         didLoad = false
@@ -245,6 +260,7 @@ struct MessagesView: View {
         requestGeneration += 1
         isLoading = false
         nextPage = 1
+        nextCursor = nil
         hasMore = true
         errorMessage = nil
         await loadMore(generation: requestGeneration, replacing: true)
@@ -264,6 +280,7 @@ struct MessagesView: View {
         let requestedSession = account.sessionIdentity
         let requestedKind = kind
         let requestedPage = replacing ? 1 : nextPage
+        let requestedCursor = replacing ? nil : nextCursor
         isLoading = true
         errorMessage = nil
         var continuation: LocallyFilteredPaginationDecision?
@@ -273,7 +290,8 @@ struct MessagesView: View {
                 try await environment.api.messages(
                     account: account,
                     kind: requestedKind,
-                    page: requestedPage
+                    page: requestedPage,
+                    cursor: requestedCursor
                 )
             }
             loadTask = task
@@ -294,6 +312,7 @@ struct MessagesView: View {
             )
             hasMore = pagination.hasMore
             nextPage = pagination.nextPage
+            nextCursor = page.nextCursor ?? page.items.last?.cursorID
             continuation = LocallyFilteredPaginationPolicy.decision(
                 visibleItemCount: visibleItems.count,
                 serverHasMore: hasMore,
@@ -394,6 +413,8 @@ private struct MessageRow: View {
             return message.isFloorReply ? "在楼中楼回复了我" : "回复了我"
         case .at:
             return "@了我"
+        case .agree:
+            return message.isFloorReply ? "赞了我的楼中楼" : "赞了我的回复"
         }
     }
 

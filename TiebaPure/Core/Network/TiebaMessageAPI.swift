@@ -3,6 +3,7 @@ import Foundation
 enum MessageKind: String, CaseIterable, Sendable {
     case reply
     case at
+    case agree
 }
 
 struct MessageItem: Identifiable, Equatable, Sendable {
@@ -16,12 +17,14 @@ struct MessageItem: Identifiable, Equatable, Sendable {
     var forumName: String?
     var isFloorReply: Bool
     var createdAt: Date?
+    var cursorID: String? = nil
 }
 
 struct MessagesPage: Equatable, Sendable {
     var items: [MessageItem]
     var currentPage: Int
     var hasMore: Bool
+    var nextCursor: String? = nil
 }
 
 struct MessagePaginationState: Equatable, Sendable {
@@ -46,6 +49,7 @@ enum MessagePaginationPolicy {
 enum TiebaMessageEndpoint {
     case replyMe
     case atMe
+    case agreeMe
 
     var url: URL {
         switch self {
@@ -53,6 +57,8 @@ enum TiebaMessageEndpoint {
             return TiebaEndpoint.appBase.appending(path: "/c/u/feed/replyme")
         case .atMe:
             return TiebaEndpoint.appBase.appending(path: "/c/u/feed/atme")
+        case .agreeMe:
+            return TiebaEndpoint.appBase.appending(path: "/c/u/feed/agreeme")
         }
     }
 }
@@ -79,6 +85,24 @@ enum TiebaMessageRequestFactory {
         fields["pn"] = "\(requestedPage)"
         fields["stErrorNums"] = "0"
         return fields
+    }
+
+    static func agreeFeedFields(
+        account: Account,
+        cursor: String?,
+        timestamp: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)
+    ) -> [String: String] {
+        [
+            "id": cursor ?? "0",
+            "rn": "15",
+            "client_type": "2",
+            "_client_type": "2",
+            "subapp_type": "client",
+            "BDUSS": account.bduss,
+            "_client_version": clientVersion,
+            "stErrorNums": "0",
+            "timestamp": "\(timestamp)"
+        ]
     }
 }
 
@@ -275,37 +299,254 @@ struct MessageListResponseDTO: Decodable {
             return replyList ?? []
         case .at:
             return atList ?? []
+        case .agree:
+            return []
         }
+    }
+}
+
+struct AgreeListResponseDTO: Decodable {
+    struct AgreeItemDTO: Decodable {
+        struct ThreadInfoDTO: Decodable {
+            var id: Int64
+            var title: String
+            var forumName: String
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case title
+                case forumName = "fname"
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = container.flexibleInt64(forKey: .id)
+                title = container.flexibleString(forKey: .title) ?? ""
+                forumName = container.flexibleString(forKey: .forumName) ?? ""
+            }
+        }
+
+        struct AgreeerDTO: Decodable {
+            var id: Int64
+            var name: String
+            var displayName: String
+            var portrait: String
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case name
+                case displayName = "name_show"
+                case portrait
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = container.flexibleInt64(forKey: .id)
+                name = container.flexibleString(forKey: .name) ?? ""
+                displayName = container.flexibleString(forKey: .displayName) ?? ""
+                portrait = container.flexibleString(forKey: .portrait) ?? ""
+            }
+
+            var userSummary: UserSummary {
+                let portraitToken = portrait.split(separator: "?", maxSplits: 1).first.map(String.init) ?? portrait
+                return UserSummary(
+                    id: id,
+                    name: name,
+                    displayName: displayName,
+                    portrait: portraitToken
+                )
+            }
+        }
+
+        struct ContentFragmentDTO: Decodable {
+            var text: String?
+
+            enum CodingKeys: String, CodingKey {
+                case text
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                text = container.flexibleString(forKey: .text)
+            }
+        }
+
+        struct PostInfoDTO: Decodable {
+            var id: UInt64
+            var quoteID: UInt64
+            var content: [ContentFragmentDTO]?
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case quoteID = "quote_id"
+                case content
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = container.flexibleUInt64(forKey: .id)
+                quoteID = container.flexibleUInt64(forKey: .quoteID)
+                content = try? container.decodeIfPresent([ContentFragmentDTO].self, forKey: .content)
+            }
+        }
+
+        var id: String
+        var threadID: Int64
+        var postID: UInt64
+        var type: Int
+        var isDel: Bool
+        var createdAt: Date?
+        var timeIdentity: String
+        var threadInfo: ThreadInfoDTO?
+        var agreeer: AgreeerDTO?
+        var postInfo: PostInfoDTO?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case threadID = "thread_id"
+            case postID = "post_id"
+            case type
+            case isDel = "is_del"
+            case time
+            case threadInfo = "thread_info"
+            case agreeer
+            case postInfo = "post_info"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = container.flexibleString(forKey: .id) ?? ""
+            threadID = container.flexibleInt64(forKey: .threadID)
+            postID = container.flexibleUInt64(forKey: .postID)
+            type = container.flexibleInt(forKey: .type)
+            isDel = container.flexibleInt(forKey: .isDel) == 1
+            threadInfo = try? container.decodeIfPresent(ThreadInfoDTO.self, forKey: .threadInfo)
+            agreeer = try? container.decodeIfPresent(AgreeerDTO.self, forKey: .agreeer)
+            postInfo = try? container.decodeIfPresent(PostInfoDTO.self, forKey: .postInfo)
+            timeIdentity = container.flexibleString(forKey: .time)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if let seconds = TimeInterval(timeIdentity), seconds > 0 {
+                createdAt = Date(timeIntervalSince1970: seconds)
+            } else {
+                createdAt = nil
+            }
+        }
+
+        func messageItem() -> MessageItem? {
+            guard threadID > 0 else { return nil }
+            let isFloor = type == 2
+            let quotePID = postInfo?.quoteID ?? 0
+            let jumpPostID = isFloor && quotePID > 0 ? quotePID : postID
+            let author = agreeer?.userSummary ?? UserSummary(id: 0, name: "", displayName: "", portrait: "")
+            let snippet = postInfo?.content?.compactMap(\.text).joined() ?? ""
+            let threadTitle = threadInfo?.title ?? ""
+            let forumName = threadInfo?.forumName
+
+            return MessageItem(
+                id: "agree-\(id)-\(threadID)-\(postID)-\(author.id)-\(timeIdentity)",
+                kind: .agree,
+                author: author,
+                content: snippet,
+                threadID: threadID,
+                postID: jumpPostID == 0 ? nil : jumpPostID,
+                threadTitle: threadTitle,
+                forumName: (forumName?.isEmpty == false) ? forumName : nil,
+                isFloorReply: isFloor,
+                createdAt: createdAt,
+                cursorID: id
+            )
+        }
+    }
+
+    var errorCode: Int
+    var errorMessage: String
+    var agreeList: [AgreeItemDTO]?
+    var hasMore: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case errorCode = "error_code"
+        case errorMessage = "error_msg"
+        case agreeList = "agree_list"
+        case hasMore = "has_more"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        errorCode = container.flexibleInt(forKey: .errorCode)
+        errorMessage = container.flexibleString(forKey: .errorMessage) ?? ""
+        if errorCode == 0 {
+            agreeList = try? container.decodeIfPresent([AgreeItemDTO].self, forKey: .agreeList)
+        } else {
+            agreeList = nil
+        }
+        hasMore = container.flexibleInt(forKey: .hasMore) != 0
     }
 }
 
 extension TiebaAPI {
     func messages(account: Account, kind: MessageKind, page: Int) async throws -> MessagesPage {
-        let fields = try TiebaMessageRequestFactory.feedFields(
-            account: account,
-            page: page,
-            requestBuilder: requestBuilder
-        )
-        let endpoint: TiebaMessageEndpoint = kind == .reply ? .replyMe : .atMe
-        let response = try await client.postForm(
-            endpoint,
-            fields: fields,
-            headers: [
-                "Cookie": "ka=open",
-                "Pragma": "no-cache",
-                "User-Agent": "bdtb for Android \(TiebaMessageRequestFactory.clientVersion)",
-                "cuid": requestBuilder.miniCUID
-            ],
-            signingSecret: "tiebaclient!!!",
-            as: MessageListResponseDTO.self
-        )
-        try TiebaResponseValidator.validate(code: response.errorCode, message: response.errorMessage)
-        let list = response.list(for: kind)
-        return MessagesPage(
-            items: list.compactMap { $0.messageItem(kind: kind) },
-            currentPage: max(response.currentPage, page),
-            hasMore: response.hasMore
-        )
+        try await messages(account: account, kind: kind, page: page, cursor: nil)
+    }
+
+    func messages(
+        account: Account,
+        kind: MessageKind,
+        page: Int,
+        cursor: String?
+    ) async throws -> MessagesPage {
+        switch kind {
+        case .reply, .at:
+            let fields = try TiebaMessageRequestFactory.feedFields(
+                account: account,
+                page: page,
+                requestBuilder: requestBuilder
+            )
+            let endpoint: TiebaMessageEndpoint = kind == .reply ? .replyMe : .atMe
+            let response = try await client.postForm(
+                endpoint,
+                fields: fields,
+                headers: [
+                    "Cookie": "ka=open",
+                    "Pragma": "no-cache",
+                    "User-Agent": "bdtb for Android \(TiebaMessageRequestFactory.clientVersion)",
+                    "cuid": requestBuilder.miniCUID
+                ],
+                signingSecret: "tiebaclient!!!",
+                as: MessageListResponseDTO.self
+            )
+            try TiebaResponseValidator.validate(code: response.errorCode, message: response.errorMessage)
+            let list = response.list(for: kind)
+            return MessagesPage(
+                items: list.compactMap { $0.messageItem(kind: kind) },
+                currentPage: max(response.currentPage, page),
+                hasMore: response.hasMore
+            )
+        case .agree:
+            let fields = TiebaMessageRequestFactory.agreeFeedFields(
+                account: account,
+                cursor: cursor
+            )
+            let response = try await client.postForm(
+                .agreeMe,
+                fields: fields,
+                headers: [
+                    "Cookie": "ka=open",
+                    "Pragma": "no-cache",
+                    "User-Agent": "bdtb for Android \(TiebaMessageRequestFactory.clientVersion)",
+                    "cuid": requestBuilder.miniCUID
+                ],
+                signingSecret: "tiebaclient!!!",
+                as: AgreeListResponseDTO.self
+            )
+            try TiebaResponseValidator.validate(code: response.errorCode, message: response.errorMessage)
+            let list = response.agreeList ?? []
+            let items = list.compactMap { $0.messageItem() }
+            return MessagesPage(
+                items: items,
+                currentPage: page,
+                hasMore: response.hasMore && items.isEmpty == false,
+                nextCursor: list.last?.id
+            )
+        }
     }
 }
 
