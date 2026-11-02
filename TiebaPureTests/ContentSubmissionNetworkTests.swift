@@ -60,9 +60,10 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
         XCTAssertEqual(headers["x_bd_data_type"], "protobuf")
         XCTAssertEqual(headers["Charset"], "UTF-8")
         XCTAssertEqual(headers["c3_aid"], Self.bootstrap.identity.c3AID)
-        XCTAssertTrue(headers["Cookie"]?.contains("BDUSS=\(Self.account.bduss)") == true)
-        XCTAssertTrue(headers["Cookie"]?.contains("ka=open") == true)
+        XCTAssertNil(headers["Cookie"])
         XCTAssertTrue(headers["cookie"]?.contains("BAIDUZID:\(Self.bootstrap.zID)") == true)
+        XCTAssertTrue(headers["cookie"]?.contains("ka:open") == true)
+        XCTAssertTrue(headers["cookie"]?.contains("TBBRAND:SM-S9180") == true)
         XCTAssertEqual(headers["client_user_token"], Self.account.uid)
     }
 
@@ -72,6 +73,7 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
             bootstrap: Self.bootstrap,
             now: Self.now
         )
+        let expectedBase64AndroidID = Self.bootstrap.identity.androidID.data(using: .utf8)?.base64EncodedString()
         XCTAssertEqual(fields["BDUSS"], Self.account.bduss)
         XCTAssertEqual(fields["stoken"], Self.account.stoken)
         XCTAssertEqual(fields["_client_type"], "2")
@@ -79,7 +81,8 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
         XCTAssertEqual(fields["brand"], "Samsung")
         XCTAssertEqual(fields["model"], "SM-S9180")
         XCTAssertEqual(fields["c3_aid"], Self.bootstrap.identity.c3AID)
-        XCTAssertEqual(fields["android_id"], Self.bootstrap.identity.androidID)
+        XCTAssertEqual(fields["android_id"], expectedBase64AndroidID)
+        XCTAssertEqual(fields["event_day"], "20231115")
         XCTAssertEqual(fields["cuid"], Self.bootstrap.identity.cuidGalaxy2)
         XCTAssertEqual(fields["cuid_galaxy2"], Self.bootstrap.identity.cuidGalaxy2)
         XCTAssertEqual(fields["z_id"], Self.bootstrap.zID)

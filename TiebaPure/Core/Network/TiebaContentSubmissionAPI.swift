@@ -560,17 +560,26 @@ enum TiebaContentSubmissionRequestFactory {
     ) -> Tieba_CommonRequest {
         let timestamp = Int64(now.timeIntervalSince1970 * 1_000)
         let firstRunTimestamp = max(1, timestamp - 30 * 86_400)
-        let dateComponents = Calendar(identifier: .gregorian).dateComponents(
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? TimeZone(secondsFromGMT: 8 * 3600)!
+        let dateComponents = calendar.dateComponents(
             [.year, .month, .day],
             from: now
         )
+        let year = dateComponents.year ?? 2026
+        let month = dateComponents.month ?? 11
+        let day = dateComponents.day ?? 1
+        let eventDay = String(format: "%04d%02d%02d", year, month, day)
+
+        let rawAndroidID = bootstrap.identity.androidID.isEmpty ? "0000000000000000" : bootstrap.identity.androidID
+        let base64AndroidID = rawAndroidID.data(using: .utf8)?.base64EncodedString() ?? rawAndroidID
 
         var common = Tieba_CommonRequest()
         common.clientType = 2
         common.clientVersion = clientVersion
         common.clientID = bootstrap.clientID
         common.phoneImei = "000000000000000"
-        common.from = "tieba"
+        common.from = "1020031h"
         common.cuid = bootstrap.identity.cuidGalaxy2
         common.timestamp = timestamp
         common.model = "SM-S9180"
@@ -587,19 +596,17 @@ enum TiebaContentSubmissionRequestFactory {
         common.cuidGalaxy2 = bootstrap.identity.cuidGalaxy2
         common.c3Aid = bootstrap.identity.c3AID
         common.sampleID = bootstrap.sampleID
-        common.scrW = 720
-        common.scrH = 1_280
-        common.scrDip = 1.5
+        common.scrW = Int32(requestBuilder.screenWidth)
+        common.scrH = Int32(requestBuilder.screenHeight)
+        common.scrDip = requestBuilder.screenScale
         common.sdkVer = "2.34.0"
         common.frameworkVer = "3340042"
         common.nawsGameVer = "1038000"
         common.activeTimestamp = firstRunTimestamp
         common.firstInstallTime = firstRunTimestamp
         common.lastUpdateTime = firstRunTimestamp
-        common.eventDay = [dateComponents.year, dateComponents.month, dateComponents.day]
-            .compactMap { $0.map(String.init) }
-            .joined()
-        common.androidID = bootstrap.identity.androidID
+        common.eventDay = eventDay
+        common.androidID = base64AndroidID
         common.cmode = 1
         common.startScheme = ""
         common.startType = 1
@@ -639,13 +646,16 @@ enum TiebaContentSubmissionRequestFactory {
         data.entranceType = "0"
         data.vcodeTag = "12"
         data.newVcode = "1"
+        data.floorNum = "0"
+        data.isAddition = "0"
+        data.isGiftpost = "0"
+        data.showCustomFigure = 0
+        data.isShowBless = 0
         let body = request.target.kind == .subpostReply
             ? subpostReplyBody(request.body, target: request.target)
             : request.body
         data.content = content(body: body, uploadedImages: uploadedImages)
         data.fid = String(request.target.forumID)
-        data.vFid = ""
-        data.vFname = ""
         data.kw = request.target.forumName
         data.isBarrage = "0"
         data.fromFourmID = String(request.target.forumID)
@@ -656,6 +666,8 @@ enum TiebaContentSubmissionRequestFactory {
 
         switch request.target.kind {
         case .threadReply:
+            data.vFid = ""
+            data.vFname = ""
             data.barrageTime = "0"
             data.postFrom = "13"
         case .postReply:
@@ -785,15 +797,20 @@ enum TiebaContentSubmissionRequestFactory {
     ) -> [String: String] {
         let timestamp = Int64(now.timeIntervalSince1970 * 1_000)
         let firstRunTimestamp = max(1, timestamp - 30 * 86_400)
-        let dateComponents = Calendar(identifier: .gregorian).dateComponents(
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? TimeZone(secondsFromGMT: 8 * 3600)!
+        let dateComponents = calendar.dateComponents(
             [.year, .month, .day],
             from: now
         )
-        let eventDay = [dateComponents.year, dateComponents.month, dateComponents.day]
-            .compactMap { $0.map(String.init) }
-            .joined()
+        let year = dateComponents.year ?? 2026
+        let month = dateComponents.month ?? 11
+        let day = dateComponents.day ?? 1
+        let eventDay = String(format: "%04d%02d%02d", year, month, day)
 
         let baiduID = (account.baiduID?.isEmpty == false ? account.baiduID : bootstrap.identity.cuidGalaxy2) ?? ""
+        let rawAndroidID = bootstrap.identity.androidID.isEmpty ? "0000000000000000" : bootstrap.identity.androidID
+        let base64AndroidID = rawAndroidID.data(using: .utf8)?.base64EncodedString() ?? rawAndroidID
 
         var fields: [String: String] = [
             "BDUSS": account.bduss,
@@ -802,7 +819,7 @@ enum TiebaContentSubmissionRequestFactory {
             "_client_version": clientVersion,
             "_phone_imei": "000000000000000",
             "active_timestamp": String(firstRunTimestamp),
-            "android_id": bootstrap.identity.androidID,
+            "android_id": base64AndroidID,
             "baiduid": baiduID,
             "brand": "Samsung",
             "c3_aid": bootstrap.identity.c3AID,
@@ -845,11 +862,7 @@ enum TiebaContentSubmissionRequestFactory {
     ) -> [String: String] {
         var headers: [String: String] = [
             "Charset": "UTF-8",
-            "Accept": "*/*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Pragma": "no-cache",
             "User-Agent": "Mozilla/5.0 (Linux; Android 12; SM-S9180 Build/W528JS; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/95.0.4638.74 Safari/537.36 tieba/\(clientVersion)",
-            "client_logid": String(timestamp),
             "cuid": bootstrap.identity.cuidGalaxy2,
             "cuid_galaxy2": bootstrap.identity.cuidGalaxy2,
             "cuid_gid": "",
@@ -857,13 +870,10 @@ enum TiebaContentSubmissionRequestFactory {
             "x_bd_data_type": "protobuf"
         ]
         if let account, account.bduss.isEmpty == false {
-            headers["client_user_token"] = account.uid
-            headers["cookie"] = "BAIDUZID:\(bootstrap.zID); ka:open; CUID:\(bootstrap.identity.cuidGalaxy2); TBBRAND:SM-S9180"
-            var cookieParts = ["ka=open", "BDUSS=\(account.bduss)"]
-            if let baiduID = account.baiduID, baiduID.isEmpty == false {
-                cookieParts.append("BAIDUID=\(baiduID)")
+            if account.uid.isEmpty == false {
+                headers["client_user_token"] = account.uid
             }
-            headers["Cookie"] = cookieParts.joined(separator: "; ")
+            headers["cookie"] = "BAIDUZID:\(bootstrap.zID); ka:open; CUID:\(bootstrap.identity.cuidGalaxy2); TBBRAND:SM-S9180"
         }
         return headers
     }
@@ -1057,7 +1067,8 @@ extension TiebaAPI {
 
         let multipart = try requestBuilder.multipart(
             protobuf: protobuf,
-            fields: fields
+            fields: fields,
+            fileContentType: nil
         )
         let headers = TiebaContentSubmissionRequestFactory.postProtobufHeaders(
             account: account,
