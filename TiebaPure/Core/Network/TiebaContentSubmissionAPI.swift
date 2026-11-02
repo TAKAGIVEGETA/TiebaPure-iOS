@@ -779,11 +779,22 @@ enum TiebaContentSubmissionRequestFactory {
     }
 
     static func postProtobufHeaders(
+        account: Account? = nil,
         bootstrap: TiebaPostingBootstrapResult,
         timestamp: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)
     ) -> [String: String] {
         var headers = appHeaders(bootstrap: bootstrap, timestamp: timestamp)
         headers["x_bd_data_type"] = "protobuf"
+        if let account, account.bduss.isEmpty == false {
+            var cookieParts = ["ka=open", "BDUSS=\(account.bduss)"]
+            if let baiduID = account.baiduID, baiduID.isEmpty == false {
+                cookieParts.append("BAIDUID=\(baiduID)")
+            }
+            headers["Cookie"] = cookieParts.joined(separator: "; ")
+            if account.uid.isEmpty == false {
+                headers["client_user_token"] = account.uid
+            }
+        }
         return headers
     }
 
@@ -969,12 +980,22 @@ extension TiebaAPI {
             requestBuilder: requestBuilder
         )
 
+        let additionalFields: [String: String] = [
+            "_client_id": requestBuilder.clientID,
+            "_client_type": "2",
+            "_client_version": TiebaContentSubmissionRequestFactory.clientVersion,
+            "net_type": "1"
+        ]
+
         let multipart = try requestBuilder.multipart(
             protobuf: protobuf,
             account: account,
-            includeSToken: true
+            includeSToken: true,
+            includeBDUSS: true,
+            additionalFields: additionalFields
         )
         let headers = TiebaContentSubmissionRequestFactory.postProtobufHeaders(
+            account: account,
             bootstrap: bootstrapResult
         )
 

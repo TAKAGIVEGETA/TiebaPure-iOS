@@ -153,7 +153,10 @@ enum TiebaEndpoint {
         case .addPost:
             return Self.protobufBase
                 .appending(path: "/c/c/post/add")
-                .appending(queryItems: [.init(name: "cmd", value: "309731")])
+                .appending(queryItems: [
+                    .init(name: "cmd", value: "309731"),
+                    .init(name: "format", value: "protobuf")
+                ])
         case .uploadPicture:
             return Self.protobufBase.appending(path: "/c/s/uploadPicture")
         }

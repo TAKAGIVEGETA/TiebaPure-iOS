@@ -147,11 +147,21 @@ struct TiebaRequestBuilder {
         protobuf: Message,
         account: Account?,
         includeSToken: Bool,
+        includeBDUSS: Bool = false,
+        additionalFields: [String: String] = [:],
         fileContentType: String? = "application/octet-stream"
     ) throws -> (body: Data, contentType: String) {
         let form = MultipartFormData(boundary: Self.boundary)
-        if includeSToken, let stoken = account?.stoken {
+        if includeBDUSS, let bduss = account?.bduss, bduss.isEmpty == false {
+            form.addField(name: "BDUSS", value: bduss)
+        }
+        if includeSToken, let stoken = account?.stoken, stoken.isEmpty == false {
             form.addField(name: "stoken", value: stoken)
+        }
+        for key in additionalFields.keys.sorted() {
+            if let value = additionalFields[key], value.isEmpty == false {
+                form.addField(name: key, value: value)
+            }
         }
         form.addFile(
             name: "data",

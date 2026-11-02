@@ -51,6 +51,18 @@ final class ContentSubmissionRequestFactoryTests: XCTestCase {
         XCTAssertEqual(fields["content"], "(#怒)(#怒)(#怒)")
     }
 
+    func testPostProtobufHeadersIncludesCookieAndUserToken() {
+        let headers = TiebaContentSubmissionRequestFactory.postProtobufHeaders(
+            account: Self.account,
+            bootstrap: Self.bootstrap,
+            timestamp: Self.timestamp
+        )
+        XCTAssertEqual(headers["x_bd_data_type"], "protobuf")
+        XCTAssertTrue(headers["Cookie"]?.contains("BDUSS=\(Self.account.bduss)") == true)
+        XCTAssertTrue(headers["Cookie"]?.contains("ka=open") == true)
+        XCTAssertEqual(headers["client_user_token"], Self.account.uid)
+    }
+
     func testThreadReplyWebFieldsOmitEveryFloorTargetAndPreserveImageInfo() throws {
         let fields = try TiebaContentSubmissionRequestFactory.webReplyFields(
             account: Self.account,

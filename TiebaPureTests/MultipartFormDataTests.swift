@@ -47,6 +47,45 @@ final class MultipartFormDataTests: XCTestCase {
         XCTAssertTrue(text.contains("name=\"data\"; filename=\"file\""))
     }
 
+    func testRequestBuilderAddsBDUSSAndAdditionalFields() throws {
+        let builder = TiebaRequestBuilder(
+            screenScale: 3,
+            screenWidth: 1179,
+            screenHeight: 2556,
+            clientID: "client"
+        )
+        let account = Account(
+            uid: "42",
+            name: "raw",
+            displayName: "Raw",
+            portrait: "",
+            bduss: "test_bduss",
+            stoken: "test_stoken",
+            baiduID: nil,
+            tbs: "tbs"
+        )
+        var request = Tieba_CommonRequest()
+        request.clientType = 2
+
+        let multipart = try builder.multipart(
+            protobuf: request,
+            account: account,
+            includeSToken: true,
+            includeBDUSS: true,
+            additionalFields: [
+                "_client_type": "2",
+                "_client_version": "12.35.1.0"
+            ]
+        )
+        let text = try XCTUnwrap(String(data: multipart.body, encoding: .utf8))
+
+        XCTAssertTrue(text.contains("name=\"BDUSS\"\r\n\r\ntest_bduss"))
+        XCTAssertTrue(text.contains("name=\"stoken\"\r\n\r\ntest_stoken"))
+        XCTAssertTrue(text.contains("name=\"_client_type\"\r\n\r\n2"))
+        XCTAssertTrue(text.contains("name=\"_client_version\"\r\n\r\n12.35.1.0"))
+        XCTAssertTrue(text.contains("name=\"data\"; filename=\"file\""))
+    }
+
     func testRequestBuilderCanMatchProtobufPartWithoutMIMEHeader() throws {
         let builder = TiebaRequestBuilder(
             screenScale: 3,
