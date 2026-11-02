@@ -611,8 +611,8 @@ enum TiebaContentSubmissionRequestFactory {
         common.cmode = 1
         common.startScheme = ""
         common.startType = 1
+        common.idfv = "0"
         common.extra = ""
-        common.oaid = "GZRTCNBZMM4TCLJWGYYTSLJUMI4WGLJZMQ3WGLJXMM4WIMBVMUYGCYZTGI"
         common.userAgent = "Mozilla/5.0 (Linux; Android 12; SM-S9180 Build/W528JS; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/95.0.4638.74 Safari/537.36 tieba/\(clientVersion)"
         common.personalizedRecSwitch = 1
         common.deviceScore = "161791.22"
@@ -652,7 +652,6 @@ enum TiebaContentSubmissionRequestFactory {
         data.isGiftpost = "0"
         data.showCustomFigure = 0
         data.isShowBless = 0
-        data.isTwzhiboThread = "0"
         let body = request.target.kind == .subpostReply
             ? subpostReplyBody(request.body, target: request.target)
             : request.body
@@ -660,6 +659,7 @@ enum TiebaContentSubmissionRequestFactory {
         data.fid = String(request.target.forumID)
         data.kw = request.target.forumName
         data.isBarrage = "0"
+        data.fromFourmID = String(request.target.forumID)
         data.tid = String(threadID)
         data.isAd = "0"
         data.nameShow = account.displayName.isEmpty ? account.name : account.displayName

@@ -238,14 +238,17 @@ struct AuthSession {
     }
 
     private static func shouldUpgradeLegacyBaiduCookie(_ cookie: HTTPCookie) -> Bool {
-        let upgradableNames = Set(["BDUSS", "BDUSS_BFESS", "BAIDUID"])
+        let upgradableNames = Set(["BDUSS", "BDUSS_BFESS", "BAIDUID", "STOKEN"])
         let name = cookie.name.uppercased()
-        return cookie.isSecure == false
-            && upgradableNames.contains(name)
-            && normalizedDomain(cookie.domain.lowercased()) == "baidu.com"
-            && BaiduCredentialPolicy.isValidCookieValue(cookie.value)
-            && (cookie.expiresDate.map { $0 > Date() } ?? true)
-            && (cookie.path.isEmpty || cookie.path.hasPrefix("/"))
+        guard cookie.isSecure == false,
+              upgradableNames.contains(name),
+              BaiduCredentialPolicy.isValidCookieValue(cookie.value),
+              (cookie.expiresDate.map { $0 > Date() } ?? true),
+              (cookie.path.isEmpty || cookie.path.hasPrefix("/")) else {
+            return false
+        }
+        let domain = normalizedDomain(cookie.domain.lowercased())
+        return allowedCookieDomains(for: name).contains(domain)
     }
 
     private static func allowedCookieDomains(for name: String) -> Set<String> {

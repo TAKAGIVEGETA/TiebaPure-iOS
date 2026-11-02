@@ -59,8 +59,8 @@ mkdir -p "$PACKAGE_ROOT"
 rm -rf "$ARCHIVE_PATH" "$PAYLOAD_DIR"
 mkdir -p "$PAYLOAD_DIR"
 
-xcodebuild \
-  -quiet \
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/xcodebuild_archive.XXXXXX.log")"
+if ! xcodebuild \
   -project "$ROOT/TiebaPure.xcodeproj" \
   -scheme TiebaPure \
   -configuration Release \
@@ -71,7 +71,13 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY="" \
-  archive
+  archive > "$BUILD_LOG" 2>&1; then
+  echo "=== xcodebuild archive failed ===" >&2
+  tail -n 100 "$BUILD_LOG" >&2
+  rm -f "$BUILD_LOG"
+  exit 1
+fi
+rm -f "$BUILD_LOG"
 
 APP_PATH="$ARCHIVE_PATH/Products/Applications/$APP_NAME"
 if [[ ! -d "$APP_PATH" ]]; then
