@@ -3223,10 +3223,11 @@ private struct SubpostListSheet: View {
             guard composerRoute == nil else { return }
             let expectedID = pendingSubmittedSubpostID
             let previousCount = subposts.count
+            var newlyFoundSubpostID: UInt64?
 
-            // Baidu Tieba read replicas typically have a 0.3s - 1.5s cache synchronization lag.
-            // Retry reload with short delays until the newly submitted subpost appears.
-            for delay in [0.25, 0.75, 1.5] {
+            // Baidu Tieba read replicas typically have a 0.8s - 3.0s cache synchronization lag.
+            // Retry reload with stepped delays until the newly submitted subpost appears.
+            for delay in [0.8, 1.5, 2.5, 4.0] {
                 guard Task.isCancelled == false,
                       generation == submissionReloadGeneration,
                       composerRoute == nil else { return }
@@ -3237,20 +3238,40 @@ private struct SubpostListSheet: View {
                 pendingSubmittedSubpostID = expectedID
                 await reload()
 
-                // If subposts span across multiple pages, load additional pages until expectedID is found
-                if let expectedID, expectedID > 0 {
-                    while hasMore && subposts.contains(where: { $0.id == expectedID }) == false {
-                        guard Task.isCancelled == false,
-                              generation == submissionReloadGeneration,
-                              composerRoute == nil else { break }
-                        await loadMore()
+                // If subposts span across multiple pages, load additional pages until expectedID is found or end of list is reached
+                while hasMore {
+                    guard Task.isCancelled == false,
+                          generation == submissionReloadGeneration,
+                          composerRoute == nil else { break }
+                    if let expectedID, expectedID > 0, subposts.contains(where: { $0.id == expectedID }) {
+                        break
+                    }
+                    await loadMore()
+                }
+
+                // Check 1: match expectedID if available
+                if let expectedID, expectedID > 0, subposts.contains(where: { $0.id == expectedID }) {
+                    newlyFoundSubpostID = expectedID
+                }
+
+                // Check 2: check if the latest subpost at the end was authored by the current user recently
+                if newlyFoundSubpostID == nil, let lastSubpost = subposts.last {
+                    let isSelfAuthor = (String(lastSubpost.author.id) == account?.uid)
+                        || (account?.name.isEmpty == false && account?.name == lastSubpost.author.name)
+                        || (account?.displayName.isEmpty == false && account?.displayName == lastSubpost.author.displayName)
+                    let isRecent = lastSubpost.createdAt.map { abs($0.timeIntervalSinceNow) < 120 } ?? true
+                    if isSelfAuthor && isRecent {
+                        newlyFoundSubpostID = lastSubpost.id
                     }
                 }
 
-                let hasNewSubpost = (expectedID != nil && expectedID! > 0)
-                    ? subposts.contains(where: { $0.id == expectedID! })
-                    : subposts.count > previousCount
+                let hasNewSubpost = (newlyFoundSubpostID != nil) || (subposts.count > previousCount)
                 if hasNewSubpost {
+                    if let foundID = newlyFoundSubpostID {
+                        scrollToSubpostID = foundID
+                    } else if let last = subposts.last {
+                        scrollToSubpostID = last.id
+                    }
                     break
                 }
             }
@@ -3261,8 +3282,8 @@ private struct SubpostListSheet: View {
                 onPostLikeChanged(post)
             }
 
-            if let expectedID, expectedID > 0 {
-                scrollToSubpostID = expectedID
+            if let targetScrollID = newlyFoundSubpostID ?? (expectedID.flatMap { $0 > 0 ? $0 : nil }) {
+                scrollToSubpostID = targetScrollID
             }
 
             guard Task.isCancelled == false,

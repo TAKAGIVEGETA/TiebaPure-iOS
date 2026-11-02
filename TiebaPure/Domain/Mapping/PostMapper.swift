@@ -2,8 +2,7 @@ import Foundation
 
 enum PostMapper {
     static func blocks(from contents: [Tieba_PbContent]) -> [ContentBlock] {
-        let normalized = normalizeContents(contents)
-        return deduplicatingVoices(in: normalized.flatMap(blocks))
+        deduplicatingVoices(in: contents.flatMap(blocks))
     }
 
     static func subpostBlocks(
@@ -19,18 +18,10 @@ enum PostMapper {
         guard TiebaContentFilter.shouldKeep(content: content) else { return [] }
 
         switch content.type {
-        case 0, 9, 27, 35, 40:
+        case 0, 9, 27:
             let emoticonBlocks = TiebaEmoticon.blocks(from: content.text)
             return TiebaLinkExtractor.extractLinks(from: emoticonBlocks)
         case 1:
-            return [.link(title: TiebaEmoticon.plainDisplayText(content.text), url: url(firstNonEmpty(content.link)))]
-        case 18:
-            let text = content.text
-            let candidate = text.hasSuffix("#") ? String(text.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines) : text
-            if (candidate.hasPrefix("#(") || candidate.hasPrefix("(#")) && TiebaEmoticon.imageName(for: candidate) != nil {
-                let emoticonBlocks = TiebaEmoticon.blocks(from: candidate)
-                return TiebaLinkExtractor.extractLinks(from: emoticonBlocks)
-            }
             return [.link(title: TiebaEmoticon.plainDisplayText(content.text), url: url(firstNonEmpty(content.link)))]
         case 2:
             let code = emoticonCode(from: content) ?? ""
@@ -285,55 +276,6 @@ enum PostMapper {
 
     private static func url(_ value: String?) -> URL? {
         TiebaURL.make(value)
-    }
-
-    private static func isTextContent(_ type: Int32) -> Bool {
-        switch type {
-        case 0, 9, 27, 35, 40:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func normalizeContents(_ contents: [Tieba_PbContent]) -> [Tieba_PbContent] {
-        guard contents.isEmpty == false else { return [] }
-        var result = contents
-
-        // Step 1: Detect type-18 blocks that are actually misparsed emoticons due to Tieba server's topic regex
-        for i in 0..<result.count {
-            if result[i].type == 18 {
-                let text = result[i].text
-                let candidate = text.hasSuffix("#") ? String(text.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines) : text
-                if (candidate.hasPrefix("#(") || candidate.hasPrefix("(#")) && TiebaEmoticon.imageName(for: candidate) != nil {
-                    result[i].type = 0
-                }
-            }
-        }
-
-        // Step 2: Fix stolen '#' between adjacent text-like blocks.
-        // When consecutive emoticons were posted (e.g. #(A)#(B)), the server topic parser consumed
-        // the leading '#' of block i+1 as the closing '#' of block i (leaving block i with trailing '#'
-        // and block i+1 missing its leading '#', starting with '(').
-        for i in 0..<(result.count - 1) {
-            guard isTextContent(result[i].type), isTextContent(result[i + 1].type) else { continue }
-            let text = result[i].text
-            guard text.hasSuffix("#") else { continue }
-            let candidate = String(text.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard (candidate.hasPrefix("#(") || candidate.hasPrefix("(#")), candidate.hasSuffix(")") else { continue }
-            guard TiebaEmoticon.imageName(for: candidate) != nil else { continue }
-
-            var nextText = result[i + 1].text
-            while let first = nextText.first, first.isWhitespace {
-                nextText.removeFirst()
-            }
-            guard nextText.hasPrefix("(") else { continue }
-
-            result[i].text = candidate
-            result[i + 1].text = "#" + nextText
-        }
-
-        return result
     }
 }
 

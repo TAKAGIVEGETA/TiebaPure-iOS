@@ -190,7 +190,7 @@ enum TiebaEmoticon {
                     }
                 }
             }
-            result.replaceCharacters(in: current.match.range, with: "#(\(current.canonicalName))")
+            result.replaceCharacters(in: current.match.range, with: "(#\(current.canonicalName))")
         }
 
         return result as String

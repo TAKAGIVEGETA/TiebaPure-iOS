@@ -361,6 +361,9 @@ struct TiebaWebReplySubmissionResponseDTO: Decodable {
             case threadID = "tid"
             case postID = "pid"
             case alternatePostID = "post_id"
+            case subPostID = "spid"
+            case alternateSubPostID = "sub_post_id"
+            case lzlID = "lzl_id"
         }
 
         init(from decoder: Swift.Decoder) throws {
@@ -382,14 +385,20 @@ struct TiebaWebReplySubmissionResponseDTO: Decodable {
             let threadID = container.submissionIdentifierString(forKey: .threadID)
             let postID = container.submissionIdentifierString(forKey: .postID)
             let alternatePostID = container.submissionIdentifierString(forKey: .alternatePostID)
+            let subPostID = container.submissionIdentifierString(forKey: .subPostID)
+            let alternateSubPostID = container.submissionIdentifierString(forKey: .alternateSubPostID)
+            let lzlID = container.submissionIdentifierString(forKey: .lzlID)
             threadIDs = [threadID].compactMap { $0 }
-            postIDs = [postID, alternatePostID].compactMap { $0 }
+            postIDs = [postID, alternatePostID, subPostID, alternateSubPostID, lzlID].compactMap { $0 }
             hasUnparseableIdentifier = (
                 container.contains(.threadID)
                     && validSubmissionThreadIdentifier(threadID) == false
             ) || [
                 (CodingKeys.postID, postID),
-                (CodingKeys.alternatePostID, alternatePostID)
+                (CodingKeys.alternatePostID, alternatePostID),
+                (CodingKeys.subPostID, subPostID),
+                (CodingKeys.alternateSubPostID, alternateSubPostID),
+                (CodingKeys.lzlID, lzlID)
             ].contains { key, value in
                 container.contains(key) && validSubmissionPostIdentifier(value) == false
             }
@@ -421,6 +430,9 @@ struct TiebaWebReplySubmissionResponseDTO: Decodable {
         case threadID = "tid"
         case postID = "pid"
         case alternatePostID = "post_id"
+        case subPostID = "spid"
+        case alternateSubPostID = "sub_post_id"
+        case lzlID = "lzl_id"
         case data
     }
 
@@ -450,14 +462,20 @@ struct TiebaWebReplySubmissionResponseDTO: Decodable {
         let threadID = container.submissionIdentifierString(forKey: .threadID)
         let postID = container.submissionIdentifierString(forKey: .postID)
         let alternatePostID = container.submissionIdentifierString(forKey: .alternatePostID)
+        let subPostID = container.submissionIdentifierString(forKey: .subPostID)
+        let alternateSubPostID = container.submissionIdentifierString(forKey: .alternateSubPostID)
+        let lzlID = container.submissionIdentifierString(forKey: .lzlID)
         threadIDs = [threadID].compactMap { $0 } + (data?.threadIDs ?? [])
-        postIDs = [postID, alternatePostID].compactMap { $0 } + (data?.postIDs ?? [])
+        postIDs = [postID, alternatePostID, subPostID, alternateSubPostID, lzlID].compactMap { $0 } + (data?.postIDs ?? [])
         hasUnparseableIdentifier = (
             container.contains(.threadID)
                 && validSubmissionThreadIdentifier(threadID) == false
         ) || [
             (CodingKeys.postID, postID),
-            (CodingKeys.alternatePostID, alternatePostID)
+            (CodingKeys.alternatePostID, alternatePostID),
+            (CodingKeys.subPostID, subPostID),
+            (CodingKeys.alternateSubPostID, alternateSubPostID),
+            (CodingKeys.lzlID, lzlID)
         ].contains { key, value in
             container.contains(key) && validSubmissionPostIdentifier(value) == false
         } || (data?.hasUnparseableIdentifier ?? false)
@@ -911,7 +929,62 @@ extension TiebaAPI {
         if request.target.kind == .newThread {
             return try await submitWebThread(account: account, request: request)
         }
-        return try await submitWebReply(account: account, request: request)
+        do {
+            return try await submitAppReply(account: account, request: request)
+        } catch let error as ContentSubmissionError {
+            switch error {
+            case .verificationRequired, .sessionExpired, .outcomeUnknown:
+                throw error
+            default:
+                return try await submitWebReply(account: account, request: request)
+            }
+        } catch {
+            return try await submitWebReply(account: account, request: request)
+        }
+    }
+
+    private func submitAppReply(
+        account: Account,
+        request: ContentSubmissionRequest
+    ) async throws -> ContentSubmissionReceipt {
+        let refreshedTBS = try await strictlyRefreshedPostingTBS(for: account)
+        try Task.checkCancellation()
+
+        let bootstrapResult = try await postingBootstrap.bootstrap(bduss: account.bduss)
+        try Task.checkCancellation()
+
+        let uploadedImages = try await uploadImages(
+            request.images,
+            account: account,
+            bootstrap: bootstrapResult
+        )
+        try Task.checkCancellation()
+
+        let protobuf = try TiebaContentSubmissionRequestFactory.addPost(
+            account: account,
+            tbs: refreshedTBS,
+            request: request,
+            uploadedImages: uploadedImages,
+            bootstrap: bootstrapResult,
+            requestBuilder: requestBuilder
+        )
+
+        let multipart = try requestBuilder.multipart(
+            protobuf: protobuf,
+            account: account,
+            includeSToken: true
+        )
+        let headers = TiebaContentSubmissionRequestFactory.postProtobufHeaders(
+            bootstrap: bootstrapResult
+        )
+
+        let response: Tieba_AddPostResponse = try await sendFinalMutation(
+            endpoint: .addPost,
+            body: multipart.body,
+            contentType: multipart.contentType,
+            headers: headers
+        )
+        return try response.submissionReceipt(for: request.target)
     }
 
     func strictlyRefreshedPostingTBS(for account: Account) async throws -> String {
@@ -1299,7 +1372,7 @@ private enum SubmissionStatusResponseKind {
         case .reply:
             return [
                 "result", "error_code", "err_code", "no", "errno", "error_no",
-                "tid", "pid", "post_id"
+                "tid", "pid", "post_id", "spid", "sub_post_id", "lzl_id"
             ]
         }
     }
