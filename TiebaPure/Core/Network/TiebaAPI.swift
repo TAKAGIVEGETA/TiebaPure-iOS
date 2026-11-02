@@ -76,6 +76,7 @@ struct TiebaAPI {
         fields["channel_id"] = ""
         fields["channel_uid"] = ""
         fields["authsid"] = "null"
+        fields.removeValue(forKey: "BDUSS")
 
         var headers = requestBuilder.officialHeaders(
             baiduID: baiduID,

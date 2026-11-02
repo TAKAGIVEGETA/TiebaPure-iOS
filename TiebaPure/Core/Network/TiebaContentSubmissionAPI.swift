@@ -572,7 +572,6 @@ enum TiebaContentSubmissionRequestFactory {
         let eventDay = String(format: "%04d%02d%02d", year, month, day)
 
         let rawAndroidID = bootstrap.identity.androidID.isEmpty ? "0000000000000000" : bootstrap.identity.androidID
-        let base64AndroidID = rawAndroidID.data(using: .utf8)?.base64EncodedString() ?? rawAndroidID
 
         var common = Tieba_CommonRequest()
         common.clientType = 2
@@ -599,6 +598,8 @@ enum TiebaContentSubmissionRequestFactory {
         common.scrW = Int32(requestBuilder.screenWidth)
         common.scrH = Int32(requestBuilder.screenHeight)
         common.scrDip = requestBuilder.screenScale
+        common.qType = 0
+        common.isTeenager = 0
         common.sdkVer = "2.34.0"
         common.frameworkVer = "3340042"
         common.nawsGameVer = "1038000"
@@ -606,12 +607,12 @@ enum TiebaContentSubmissionRequestFactory {
         common.firstInstallTime = firstRunTimestamp
         common.lastUpdateTime = firstRunTimestamp
         common.eventDay = eventDay
-        common.androidID = base64AndroidID
+        common.androidID = rawAndroidID
         common.cmode = 1
         common.startScheme = ""
         common.startType = 1
-        common.idfv = "0"
         common.extra = ""
+        common.oaid = "GZRTCNBZMM4TCLJWGYYTSLJUMI4WGLJZMQ3WGLJXMM4WIMBVMUYGCYZTGI"
         common.userAgent = "Mozilla/5.0 (Linux; Android 12; SM-S9180 Build/W528JS; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/95.0.4638.74 Safari/537.36 tieba/\(clientVersion)"
         common.personalizedRecSwitch = 1
         common.deviceScore = "161791.22"
@@ -651,6 +652,7 @@ enum TiebaContentSubmissionRequestFactory {
         data.isGiftpost = "0"
         data.showCustomFigure = 0
         data.isShowBless = 0
+        data.isTwzhiboThread = "0"
         let body = request.target.kind == .subpostReply
             ? subpostReplyBody(request.body, target: request.target)
             : request.body
@@ -658,7 +660,6 @@ enum TiebaContentSubmissionRequestFactory {
         data.fid = String(request.target.forumID)
         data.kw = request.target.forumName
         data.isBarrage = "0"
-        data.fromFourmID = String(request.target.forumID)
         data.tid = String(threadID)
         data.isAd = "0"
         data.nameShow = account.displayName.isEmpty ? account.name : account.displayName

@@ -283,7 +283,7 @@ final class AuthSessionTests: XCTestCase {
         XCTAssertEqual(result.stoken, "stoken")
     }
 
-    func testAuthSessionPrefersTiebaSTokenWhenDuplicateDomainsExist() throws {
+    func testAuthSessionPrefersPassportSTokenWhenDuplicateDomainsExist() throws {
         let cookies = [
             HTTPCookie(properties: [
                 .name: "BDUSS",
@@ -310,7 +310,7 @@ final class AuthSessionTests: XCTestCase {
 
         let result = try AuthSession.extract(from: cookies)
 
-        XCTAssertEqual(result.stoken, "tieba-stoken")
+        XCTAssertEqual(result.stoken, "wappass-stoken")
     }
 
     func testAuthSessionDetectsRequiredCookiesAcrossPassportAndTiebaDomains() throws {

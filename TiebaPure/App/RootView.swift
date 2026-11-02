@@ -25,6 +25,7 @@ struct RootView: View {
         }
         .task {
             let generation = accountTransitionGeneration
+            await AuthSession.synchronizePassportSTokenIfNeeded(for: environment.accountStore)
             let loadedAccount = try? await environment.accountStore.load()
             guard generation == accountTransitionGeneration else { return }
             await updateAccount(loadedAccount, generation: generation)

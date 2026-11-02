@@ -262,17 +262,48 @@ struct AuthSession {
     }
 
     private static func isPreferredSToken(_ candidate: HTTPCookie, over current: HTTPCookie?) -> Bool {
-        let candidateDomain = candidate.domain.lowercased()
-        let currentDomain = current?.domain.lowercased() ?? ""
-        let candidateIsTieba = normalizedDomain(candidateDomain) == "tieba.baidu.com"
-        let currentIsTieba = normalizedDomain(currentDomain) == "tieba.baidu.com"
-        if candidateIsTieba != currentIsTieba {
-            return candidateIsTieba
+        guard let current else { return true }
+        let candidateDomain = normalizedDomain(candidate.domain.lowercased())
+        let currentDomain = normalizedDomain(current.domain.lowercased())
+        let passportDomains: Set<String> = ["baidu.com", "passport.baidu.com", "wappass.baidu.com"]
+        let candidateIsPassport = passportDomains.contains(candidateDomain)
+        let currentIsPassport = passportDomains.contains(currentDomain)
+        if candidateIsPassport != currentIsPassport {
+            return candidateIsPassport
         }
         return true
     }
 
-    private static func normalizedDomain(_ domain: String) -> String {
+    static func normalizedDomain(_ domain: String) -> String {
         domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
     }
 }
+
+#if canImport(WebKit)
+import WebKit
+
+extension AuthSession {
+    @MainActor
+    static func synchronizePassportSTokenIfNeeded(for accountStore: AccountStore) async {
+        guard let account = try? await accountStore.load() else { return }
+        let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+                continuation.resume(returning: cookies)
+            }
+        }
+        let passportDomains: Set<String> = ["baidu.com", "passport.baidu.com", "wappass.baidu.com"]
+        guard let passportCookie = cookies.first(where: { cookie in
+            cookie.name.uppercased() == "STOKEN"
+                && cookie.value.count == 64
+                && passportDomains.contains(normalizedDomain(cookie.domain.lowercased()))
+        }) else {
+            return
+        }
+        if account.stoken != passportCookie.value {
+            var updated = account
+            updated.stoken = passportCookie.value
+            try? await accountStore.save(updated)
+        }
+    }
+}
+#endif
