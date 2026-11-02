@@ -5,6 +5,7 @@ struct SubpostPreviewView: View {
     let totalCount: Int
     let threadAuthorID: Int64?
     let onOpenAll: (() -> Void)?
+    let onOpenSubpost: ((Subpost) -> Void)?
     let onOpenUser: ((UserSummary) -> Void)?
     let onOpenTiebaRoute: ((ExternalRoute) -> Void)?
 
@@ -13,6 +14,7 @@ struct SubpostPreviewView: View {
         totalCount: Int,
         threadAuthorID: Int64?,
         onOpenAll: (() -> Void)? = nil,
+        onOpenSubpost: ((Subpost) -> Void)? = nil,
         onOpenUser: ((UserSummary) -> Void)? = nil,
         onOpenTiebaRoute: ((ExternalRoute) -> Void)? = nil
     ) {
@@ -20,31 +22,41 @@ struct SubpostPreviewView: View {
         self.totalCount = totalCount
         self.threadAuthorID = threadAuthorID
         self.onOpenAll = onOpenAll
+        self.onOpenSubpost = onOpenSubpost
         self.onOpenUser = onOpenUser
         self.onOpenTiebaRoute = onOpenTiebaRoute
     }
 
     var body: some View {
-        if subposts.isEmpty == false {
+        if subposts.isEmpty == false || totalCount > 0 {
             VStack(alignment: .leading, spacing: SubpostPreviewLayout.openAllTopSpacing) {
-                VStack(alignment: .leading, spacing: SubpostPreviewLayout.rowSpacing) {
-                    ForEach(subposts) { subpost in
-                        SubpostInlineRow(
-                            subpost: subpost,
-                            threadAuthorID: threadAuthorID,
-                            lineLimit: ThreadContentDisplayPolicy.detailLineLimit,
-                            onOpenUser: onOpenUser,
-                            onOpenTiebaRoute: onOpenTiebaRoute
-                        )
+                if subposts.isEmpty == false {
+                    VStack(alignment: .leading, spacing: SubpostPreviewLayout.rowSpacing) {
+                        ForEach(subposts) { subpost in
+                            SubpostInlineRow(
+                                subpost: subpost,
+                                threadAuthorID: threadAuthorID,
+                                lineLimit: ThreadContentDisplayPolicy.detailLineLimit,
+                                onOpenUser: onOpenUser,
+                                onOpenTiebaRoute: onOpenTiebaRoute,
+                                onSelect: {
+                                    if let onOpenSubpost {
+                                        onOpenSubpost(subpost)
+                                    } else {
+                                        onOpenAll?()
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
 
-                if totalCount > subposts.count, let onOpenAll {
+                if let onOpenAll {
                     Button {
                         onOpenAll()
                     } label: {
                         HStack(spacing: 2) {
-                            Text("查看全部\(totalCount)条回复")
+                            Text("查看全部\(max(totalCount, subposts.count))条回复")
                             Image(systemName: "chevron.right")
                                 .font(.footnote.weight(.semibold))
                         }
@@ -62,7 +74,7 @@ struct SubpostPreviewView: View {
                         .interaction,
                         Rectangle().inset(by: -SubpostPreviewLayout.openAllHitExpansion)
                     )
-                    .accessibilityLabel("查看全部\(totalCount)条回复")
+                    .accessibilityLabel("查看全部\(max(totalCount, subposts.count))条回复")
                 }
             }
             .padding(.horizontal, TiebaPureTheme.Spacing.sm)
@@ -72,6 +84,10 @@ struct SubpostPreviewView: View {
                 RoundedRectangle(cornerRadius: TiebaPureTheme.Radius.media, style: .continuous)
                     .fill(TiebaPureTheme.ColorToken.readerTertiarySurface)
             )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onOpenAll?()
+            }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("thread-subpost-preview")
         }
@@ -96,6 +112,7 @@ struct SubpostInlineRow: View {
     var lineLimit: Int = ThreadContentDisplayPolicy.detailLineLimit
     var onOpenUser: ((UserSummary) -> Void)?
     var onOpenTiebaRoute: ((ExternalRoute) -> Void)?
+    var onSelect: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: TiebaPureTheme.Spacing.xxs) {
@@ -115,7 +132,8 @@ struct SubpostInlineRow: View {
                 ),
                 accessibilityIdentifier: "thread-subpost-preview-text",
                 onOpenUser: onOpenUser,
-                onOpenTiebaRoute: onOpenTiebaRoute
+                onOpenTiebaRoute: onOpenTiebaRoute,
+                onPlainTextTap: onSelect
             )
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)

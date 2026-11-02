@@ -7,7 +7,7 @@ struct PostRowView: View {
     let threadTitle: String?
     let threadAuthorID: Int64?
     let isMainPost: Bool
-    let onOpenSubposts: ((Post) -> Void)?
+    let onOpenSubposts: ((Post, UInt64?) -> Void)?
     let onOpenUser: ((UserSummary) -> Void)?
     let onOpenTiebaRoute: ((ExternalRoute) -> Void)?
     let isLikeUpdating: Bool
@@ -19,7 +19,7 @@ struct PostRowView: View {
         threadTitle: String? = nil,
         threadAuthorID: Int64? = nil,
         isMainPost: Bool = false,
-        onOpenSubposts: ((Post) -> Void)? = nil,
+        onOpenSubposts: ((Post, UInt64?) -> Void)? = nil,
         onOpenUser: ((UserSummary) -> Void)? = nil,
         onOpenTiebaRoute: ((ExternalRoute) -> Void)? = nil,
         isLikeUpdating: Bool = false,
@@ -36,6 +36,32 @@ struct PostRowView: View {
         self.isLikeUpdating = isLikeUpdating
         self.onToggleLike = onToggleLike
         self.onReply = onReply
+    }
+
+    init(
+        post: Post,
+        threadTitle: String? = nil,
+        threadAuthorID: Int64? = nil,
+        isMainPost: Bool = false,
+        onOpenSubposts: ((Post) -> Void)?,
+        onOpenUser: ((UserSummary) -> Void)? = nil,
+        onOpenTiebaRoute: ((ExternalRoute) -> Void)? = nil,
+        isLikeUpdating: Bool = false,
+        onToggleLike: (() -> Void)? = nil,
+        onReply: (() -> Void)? = nil
+    ) {
+        self.init(
+            post: post,
+            threadTitle: threadTitle,
+            threadAuthorID: threadAuthorID,
+            isMainPost: isMainPost,
+            onOpenSubposts: onOpenSubposts.map { open in { post, _ in open(post) } },
+            onOpenUser: onOpenUser,
+            onOpenTiebaRoute: onOpenTiebaRoute,
+            isLikeUpdating: isLikeUpdating,
+            onToggleLike: onToggleLike,
+            onReply: onReply
+        )
     }
 
     var body: some View {
@@ -110,12 +136,13 @@ struct PostRowView: View {
                         placement: metadataPlacement
                     )
 
-                    if post.previewSubposts.isEmpty == false {
+                    if post.previewSubposts.isEmpty == false || post.subpostCount > 0 {
                         SubpostPreviewView(
                             subposts: post.previewSubposts,
                             totalCount: post.subpostCount,
                             threadAuthorID: threadAuthorID,
-                            onOpenAll: onOpenSubposts.map { open in { open(post) } },
+                            onOpenAll: onOpenSubposts.map { open in { open(post, nil) } },
+                            onOpenSubpost: onOpenSubposts.map { open in { subpost in open(post, subpost.id) } },
                             onOpenUser: onOpenUser,
                             onOpenTiebaRoute: onOpenTiebaRoute
                         )

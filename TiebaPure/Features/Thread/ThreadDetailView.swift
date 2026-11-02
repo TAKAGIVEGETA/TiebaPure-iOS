@@ -1588,8 +1588,8 @@ struct ThreadDetailView: View {
             guard Task.isCancelled == false else { return }
             highlightedPostID = nil
         }
-        selectedSubpostPost = floorPost
         pendingSubpostInitialID = subpostID
+        selectedSubpostPost = floorPost
     }
 
     private func cancelPostHighlight() {
@@ -2190,8 +2190,9 @@ struct ThreadDetailView: View {
         }
     }
 
-    private func openSubpostsIfPossible(_ post: Post) {
-        guard post.subpostCount > 0 else { return }
+    private func openSubpostsIfPossible(_ post: Post, initialSubpostID: UInt64? = nil) {
+        guard post.subpostCount > 0 || post.previewSubposts.isEmpty == false else { return }
+        pendingSubpostInitialID = initialSubpostID
         selectedSubpostPost = post
     }
 
@@ -2864,6 +2865,7 @@ private struct SubpostListSheet: View {
     let account: Account?
     let thread: ThreadSummary
     let forum: Forum
+    let initialSubpostID: UInt64?
     let threadAuthorID: Int64?
     let onPostLikeChanged: (Post) -> Void
     let onInteractiveDismiss: () -> Void
@@ -2893,6 +2895,7 @@ private struct SubpostListSheet: View {
     @State private var submissionReloadGeneration = 0
     @State private var submissionReloadTask: Task<Void, Never>?
     @State private var linkedRoute: ExternalRoute?
+    @State private var scrollToSubpostID: UInt64?
 
     init(
         account: Account?,
@@ -2907,6 +2910,7 @@ private struct SubpostListSheet: View {
         self.account = account
         self.thread = thread
         self.forum = forum
+        self.initialSubpostID = initialSubpostID
         self.threadAuthorID = threadAuthorID
         self.onPostLikeChanged = onPostLikeChanged
         self.onInteractiveDismiss = onInteractiveDismiss
@@ -2930,8 +2934,9 @@ private struct SubpostListSheet: View {
                         }
                     }
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
+                    ScrollViewReader { scrollProxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
                             ReaderCard(
                                 showsDivider: false,
                                 contentBottomPadding: ThreadPostMetadataPlacement.standaloneReply.cardBottomPadding
@@ -2999,6 +3004,7 @@ private struct SubpostListSheet: View {
                                         ? { openSubpostReplyComposer(subpost) }
                                         : nil
                                 )
+                                .id(subpost.id)
                                     .onAppear {
                                         guard PaginationPrefetchPolicy.shouldLoadMore(
                                             currentIndex: index,
@@ -3041,6 +3047,14 @@ private struct SubpostListSheet: View {
                         .readableWidth()
                     }
                     .background(TiebaPureTheme.ColorToken.readerGroupedBackground)
+                    .onChange(of: scrollToSubpostID) { targetID in
+                        guard let targetID else { return }
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            scrollProxy.scrollTo(targetID, anchor: .center)
+                        }
+                        scrollToSubpostID = nil
+                    }
+                    }
                 }
                 }
                 .navigationTitle(SubpostSheetTitle.text(
@@ -3127,6 +3141,13 @@ private struct SubpostListSheet: View {
             .task {
                 guard didLoad == false else { return }
                 await reload()
+                if let initialSubpostID, initialSubpostID > 0 {
+                    while hasMore && subposts.contains(where: { $0.id == initialSubpostID }) == false {
+                        guard Task.isCancelled == false else { break }
+                        await loadMore()
+                    }
+                    scrollToSubpostID = initialSubpostID
+                }
             }
             .onChange(of: blocklistStore.entries) { _ in
                 subposts.removeAll { TiebaContentFilter.shouldKeep(subpost: $0) == false }
@@ -3200,7 +3221,50 @@ private struct SubpostListSheet: View {
         let generation = submissionReloadGeneration
         submissionReloadTask = Task { @MainActor in
             guard composerRoute == nil else { return }
-            await reload()
+            let expectedID = pendingSubmittedSubpostID
+            let previousCount = subposts.count
+
+            // Baidu Tieba read replicas typically have a 0.3s - 1.5s cache synchronization lag.
+            // Retry reload with short delays until the newly submitted subpost appears.
+            for delay in [0.25, 0.75, 1.5] {
+                guard Task.isCancelled == false,
+                      generation == submissionReloadGeneration,
+                      composerRoute == nil else { return }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard Task.isCancelled == false,
+                      generation == submissionReloadGeneration,
+                      composerRoute == nil else { return }
+                pendingSubmittedSubpostID = expectedID
+                await reload()
+
+                // If subposts span across multiple pages, load additional pages until expectedID is found
+                if let expectedID, expectedID > 0 {
+                    while hasMore && subposts.contains(where: { $0.id == expectedID }) == false {
+                        guard Task.isCancelled == false,
+                              generation == submissionReloadGeneration,
+                              composerRoute == nil else { break }
+                        await loadMore()
+                    }
+                }
+
+                let hasNewSubpost = (expectedID != nil && expectedID! > 0)
+                    ? subposts.contains(where: { $0.id == expectedID! })
+                    : subposts.count > previousCount
+                if hasNewSubpost {
+                    break
+                }
+            }
+
+            if subposts.count > post.subpostCount {
+                post.subpostCount = subposts.count
+                post.previewSubposts = Array(subposts.prefix(3))
+                onPostLikeChanged(post)
+            }
+
+            if let expectedID, expectedID > 0 {
+                scrollToSubpostID = expectedID
+            }
+
             guard Task.isCancelled == false,
                   generation == submissionReloadGeneration,
                   account?.sessionIdentity == submittedAccount.sessionIdentity,
@@ -3341,6 +3405,11 @@ private struct SubpostListSheet: View {
             } else {
                 let knownIDs = Set(subposts.map(\.id))
                 subposts.append(contentsOf: visibleSubposts.filter { knownIDs.contains($0.id) == false })
+            }
+            if subposts.count > post.subpostCount {
+                post.subpostCount = subposts.count
+                post.previewSubposts = Array(subposts.prefix(3))
+                onPostLikeChanged(post)
             }
             hasMore = loadedPage.hasMore
             nextPage = requestedPage + 1
