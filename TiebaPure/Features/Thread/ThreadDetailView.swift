@@ -2865,6 +2865,12 @@ enum ReplyControlBarTypography {
     }
 }
 
+private struct SubpostSubmissionNoticeAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
 private struct SubpostListSheet: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var contentSubmissionSettingsStore: ContentSubmissionSettingsStore
@@ -2896,8 +2902,7 @@ private struct SubpostListSheet: View {
     @State private var likeTasks: [UInt64: Task<Void, Never>] = [:]
     @State private var likeActionError: String?
     @State private var composerRoute: ContentComposerRoute?
-    @State private var contentActionError: String?
-    @State private var showsSubmissionSuccessAlert = false
+    @State private var submissionNoticeAlert: SubpostSubmissionNoticeAlert?
     @State private var pendingSubmittedSubpostID: UInt64?
     @State private var hasPendingSubmission = false
     @State private var pendingSubmissionAccount: Account?
@@ -3109,38 +3114,30 @@ private struct SubpostListSheet: View {
                 } message: {
                     Text(userResolutionError ?? "")
                 }
-                .alert("提示", isPresented: contentActionErrorIsPresented) {
-                    Button("好", role: .cancel) {
-                        contentActionError = nil
-                    }
-                } message: {
-                    Text(contentActionError ?? "")
-                }
-                .alert("提示", isPresented: $showsSubmissionSuccessAlert) {
-                    Button("好", role: .cancel) {
-                        showsSubmissionSuccessAlert = false
-                    }
-                } message: {
-                    Text("发送成功")
+                .alert(item: $submissionNoticeAlert) { notice in
+                    Alert(
+                        title: Text(notice.title),
+                        message: Text(notice.message),
+                        dismissButton: .default(Text("好"))
+                    )
                 }
                 .sheet(item: $composerRoute, onDismiss: handleComposerDismissed) { route in
                     if let account {
-                        let presentationGeneration = submissionReloadGeneration
                         ContentComposerPresentation(
                             account: account,
                             target: route.target,
                             onDismiss: { composerRoute = nil },
                             onSent: { receipt in
-                                guard self.account?.sessionIdentity == account.sessionIdentity,
-                                      composerRoute?.id == route.id,
-                                      presentationGeneration == submissionReloadGeneration else { return }
+                                guard self.account?.sessionIdentity == account.sessionIdentity else { return }
                                 pendingSubmittedSubpostID = receipt.postID
                                 hasPendingSubmission = true
                                 pendingSubmissionAccount = account
                                 pendingSubmissionRouteID = route.id
                             },
                             onDraftCleanupFailure: {
-                                contentActionError = "内容已发送，但本机草稿未能清除。重新打开编辑器前请先重试草稿读取。"
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    showSubmissionNotice("内容已发送，但本机草稿未能清除。重新打开编辑器前请先重试草稿读取。")
+                                }
                             }
                         )
                         .environmentObject(environment)
@@ -3170,6 +3167,7 @@ private struct SubpostListSheet: View {
                 subposts.removeAll { TiebaContentFilter.shouldKeep(subpost: $0) == false }
             }
             .onDisappear {
+                guard composerRoute == nil, hasPendingSubmission == false else { return }
                 cancelSubmissionReload()
                 loadTask?.cancel()
                 requestGeneration += 1
@@ -3212,13 +3210,8 @@ private struct SubpostListSheet: View {
         )
     }
 
-    private var contentActionErrorIsPresented: Binding<Bool> {
-        Binding(
-            get: { contentActionError != nil },
-            set: { isPresented in
-                if isPresented == false { contentActionError = nil }
-            }
-        )
+    private func showSubmissionNotice(_ message: String, title: String = "提示") {
+        submissionNoticeAlert = SubpostSubmissionNoticeAlert(title: title, message: message)
     }
 
     private var threadID: Int64 { thread.id }
@@ -3233,7 +3226,9 @@ private struct SubpostListSheet: View {
         pendingSubmissionRouteID = nil
         guard account?.sessionIdentity == submittedAccount.sessionIdentity else { return }
 
-        showsSubmissionSuccessAlert = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            showSubmissionNotice("发送成功")
+        }
         submissionReloadTask?.cancel()
         submissionReloadGeneration += 1
         let generation = submissionReloadGeneration
@@ -3255,11 +3250,11 @@ private struct SubpostListSheet: View {
 
     private func openParentReplyComposer() {
         guard contentSubmissionSettingsStore.repliesEnabled else {
-            contentActionError = "请先在设置中开启“允许回帖”。"
+            showSubmissionNotice("请先在设置中开启“允许回帖”。")
             return
         }
         guard account != nil else {
-            contentActionError = "登录后才能回复楼层。"
+            showSubmissionNotice("登录后才能回复楼层。")
             return
         }
         cancelSubmissionReload()
@@ -3270,11 +3265,11 @@ private struct SubpostListSheet: View {
 
     private func openSubpostReplyComposer(_ subpost: Subpost) {
         guard contentSubmissionSettingsStore.repliesEnabled else {
-            contentActionError = "请先在设置中开启“允许回帖”。"
+            showSubmissionNotice("请先在设置中开启“允许回帖”。")
             return
         }
         guard account != nil else {
-            contentActionError = "登录后才能回复用户。"
+            showSubmissionNotice("登录后才能回复用户。")
             return
         }
         cancelSubmissionReload()
