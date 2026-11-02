@@ -646,6 +646,15 @@ enum TiebaContentSubmissionRequestFactory {
         data.entranceType = "0"
         data.vcodeTag = "12"
         data.newVcode = "1"
+        if let vcode = request.verificationCode, vcode.isEmpty == false {
+            data.vcode = vcode
+            if let vcodeMd5 = request.verificationMD5?.value, vcodeMd5.isEmpty == false {
+                data.vcodeMd5 = vcodeMd5
+            }
+            if let vcodeType = request.verificationType, vcodeType.isEmpty == false {
+                data.vcodeType = vcodeType
+            }
+        }
         data.floorNum = "0"
         data.isAddition = "0"
         data.isGiftpost = "0"
@@ -793,6 +802,8 @@ enum TiebaContentSubmissionRequestFactory {
     static func appReplyMultipartFields(
         account: Account,
         bootstrap: TiebaPostingBootstrapResult,
+        vcode: String? = nil,
+        vcodeMD5: String? = nil,
         now: Date = Date()
     ) -> [String: String] {
         let timestamp = Int64(now.timeIntervalSince1970 * 1_000)
@@ -848,6 +859,12 @@ enum TiebaContentSubmissionRequestFactory {
             "timestamp": String(timestamp),
             "z_id": bootstrap.zID
         ]
+        if let vcode, vcode.isEmpty == false {
+            fields["vcode"] = vcode
+            if let vcodeMD5, vcodeMD5.isEmpty == false {
+                fields["vcode_md5"] = vcodeMD5
+            }
+        }
 
         let signature = TiebaFormSigner.sign(fields: fields, secret: "tiebaclient!!!")
         fields["sign"] = signature
@@ -1061,7 +1078,9 @@ extension TiebaAPI {
 
         let fields = TiebaContentSubmissionRequestFactory.appReplyMultipartFields(
             account: account,
-            bootstrap: bootstrapResult
+            bootstrap: bootstrapResult,
+            vcode: request.verificationCode,
+            vcodeMD5: request.verificationMD5?.value
         )
 
         let multipart = try requestBuilder.multipart(

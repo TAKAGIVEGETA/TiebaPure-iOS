@@ -162,6 +162,27 @@ struct ContentSubmissionRequest: Equatable, Sendable {
     var title: String
     var body: String
     var images: [ContentSubmissionImage]
+    var verificationCode: String? = nil
+    var verificationMD5: SubmissionSecret? = nil
+    var verificationType: String? = nil
+
+    init(
+        target: ContentSubmissionTarget,
+        title: String,
+        body: String,
+        images: [ContentSubmissionImage],
+        verificationCode: String? = nil,
+        verificationMD5: SubmissionSecret? = nil,
+        verificationType: String? = nil
+    ) {
+        self.target = target
+        self.title = title
+        self.body = body
+        self.images = images
+        self.verificationCode = verificationCode
+        self.verificationMD5 = verificationMD5
+        self.verificationType = verificationType
+    }
 }
 
 struct ContentSubmissionReceipt: Equatable, Sendable {

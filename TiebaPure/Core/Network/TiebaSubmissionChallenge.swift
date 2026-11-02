@@ -334,11 +334,17 @@ private func uniqueValue<Value: Hashable>(
 
 func validatedBaiduChallengeURL(_ value: String?) -> URL? {
     guard let value,
-          let components = URLComponents(string: value),
-          components.scheme?.lowercased() == "https",
+          var components = URLComponents(string: value),
           components.user == nil,
-          components.password == nil,
-          let url = TiebaURL.webpage(value),
+          components.password == nil else {
+        return nil
+    }
+    let scheme = components.scheme?.lowercased()
+    guard scheme == "http" || scheme == "https" else {
+        return nil
+    }
+    components.scheme = "https"
+    guard let url = components.url,
           let host = url.host?.lowercased()
             .trimmingCharacters(in: CharacterSet(charactersIn: ".")) else {
         return nil

@@ -1560,6 +1560,59 @@ final class ContentSubmissionNetworkIntegrationTests: XCTestCase {
         XCTAssertEqual(receipt.postID, 154098770050)
     }
 
+    func testAddPostWithVerificationCodeIncludesVcodeAndMd5() throws {
+        var request = Self.textReply
+        request.verificationCode = "ABCD"
+        request.verificationMD5 = SubmissionSecret("test-md5-value")
+        request.verificationType = "1"
+
+        let bootstrap = TiebaPostingBootstrapResult(
+            clientID: "fixture-client-id",
+            zID: "fixture-zid",
+            sampleID: "fixture-sample",
+            identity: TiebaClientIdentity(
+                cuidGalaxy2: "fixture-cuid",
+                c3AID: "fixture-c3aid",
+                androidID: "fixture-android-id"
+            )
+        )
+        let requestBuilder = TiebaRequestBuilder(
+            baseURL: URL(string: "https://tiebac.baidu.com")!,
+            screenWidth: 1080,
+            screenHeight: 2400,
+            screenScale: 3.0
+        )
+
+        let addPostReq = try TiebaContentSubmissionRequestFactory.addPost(
+            account: Self.account,
+            tbs: "fixture-tbs",
+            request: request,
+            uploadedImages: [],
+            bootstrap: bootstrap,
+            requestBuilder: requestBuilder
+        )
+
+        XCTAssertEqual(addPostReq.data.vcode, "ABCD")
+        XCTAssertEqual(addPostReq.data.vcodeMd5, "test-md5-value")
+        XCTAssertEqual(addPostReq.data.vcodeType, "1")
+
+        let fields = TiebaContentSubmissionRequestFactory.appReplyMultipartFields(
+            account: Self.account,
+            bootstrap: bootstrap,
+            vcode: request.verificationCode,
+            vcodeMD5: request.verificationMD5?.value
+        )
+        XCTAssertEqual(fields["vcode"], "ABCD")
+        XCTAssertEqual(fields["vcode_md5"], "test-md5-value")
+        XCTAssertNotNil(fields["sign"])
+    }
+
+    func testValidatedBaiduChallengeURLUpgradesHttpToHttps() {
+        let httpURL = "http://tieba.baidu.com/cgi-bin/genimg?captchaservice123"
+        let result = validatedBaiduChallengeURL(httpURL)
+        XCTAssertEqual(result?.absoluteString, "https://tieba.baidu.com/cgi-bin/genimg?captchaservice123")
+    }
+
     private func makeAPI(mode: SubmissionStubMode) -> (api: TiebaAPI, id: String) {
         makeAPI(
             mode: mode,

@@ -90,6 +90,7 @@ struct ThreadDetailView: View {
     @State private var pendingSubpostInitialID: UInt64?
     @State private var linkedRoute: ExternalRoute?
     @State private var contentActionError: String?
+    @State private var showsSubmissionSuccessAlert = false
     @State private var showsOwnThreadDeleteConfirmation = false
     @State private var isDeletingOwnThread = false
     @State private var hasUnconfirmedOwnThreadDeletion = false
@@ -268,6 +269,13 @@ struct ThreadDetailView: View {
                 Button("好", role: .cancel) { contentActionError = nil }
             } message: {
                 Text(contentActionError ?? "")
+            }
+            .alert("提示", isPresented: $showsSubmissionSuccessAlert) {
+                Button("好", role: .cancel) {
+                    showsSubmissionSuccessAlert = false
+                }
+            } message: {
+                Text("发送成功")
             }
             .confirmationDialog(
                 "删除这个帖子？",
@@ -1113,6 +1121,7 @@ struct ThreadDetailView: View {
         pendingSubmissionAccount = nil
         pendingSubmissionRouteID = nil
         guard account?.sessionIdentity == submittedAccount.sessionIdentity else { return }
+        showsSubmissionSuccessAlert = true
         handleSentContent(
             receipt,
             target: target,
@@ -2888,6 +2897,7 @@ private struct SubpostListSheet: View {
     @State private var likeActionError: String?
     @State private var composerRoute: ContentComposerRoute?
     @State private var contentActionError: String?
+    @State private var showsSubmissionSuccessAlert = false
     @State private var pendingSubmittedSubpostID: UInt64?
     @State private var hasPendingSubmission = false
     @State private var pendingSubmissionAccount: Account?
@@ -3106,6 +3116,13 @@ private struct SubpostListSheet: View {
                 } message: {
                     Text(contentActionError ?? "")
                 }
+                .alert("提示", isPresented: $showsSubmissionSuccessAlert) {
+                    Button("好", role: .cancel) {
+                        showsSubmissionSuccessAlert = false
+                    }
+                } message: {
+                    Text("发送成功")
+                }
                 .sheet(item: $composerRoute, onDismiss: handleComposerDismissed) { route in
                     if let account {
                         let presentationGeneration = submissionReloadGeneration
@@ -3216,80 +3233,22 @@ private struct SubpostListSheet: View {
         pendingSubmissionRouteID = nil
         guard account?.sessionIdentity == submittedAccount.sessionIdentity else { return }
 
+        showsSubmissionSuccessAlert = true
         submissionReloadTask?.cancel()
         submissionReloadGeneration += 1
         let generation = submissionReloadGeneration
         submissionReloadTask = Task { @MainActor in
             guard composerRoute == nil else { return }
-            let expectedID = pendingSubmittedSubpostID
-            let previousCount = subposts.count
-            var newlyFoundSubpostID: UInt64?
-
-            // Baidu Tieba read replicas typically have a 0.8s - 3.0s cache synchronization lag.
-            // Retry reload with stepped delays until the newly submitted subpost appears.
-            for delay in [0.8, 1.5, 2.5, 4.0] {
-                guard Task.isCancelled == false,
-                      generation == submissionReloadGeneration,
-                      composerRoute == nil else { return }
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                guard Task.isCancelled == false,
-                      generation == submissionReloadGeneration,
-                      composerRoute == nil else { return }
-                pendingSubmittedSubpostID = expectedID
-                await reload()
-
-                // If subposts span across multiple pages, load additional pages until expectedID is found or end of list is reached
-                while hasMore {
-                    guard Task.isCancelled == false,
-                          generation == submissionReloadGeneration,
-                          composerRoute == nil else { break }
-                    if let expectedID, expectedID > 0, subposts.contains(where: { $0.id == expectedID }) {
-                        break
-                    }
-                    await loadMore()
-                }
-
-                // Check 1: match expectedID if available
-                if let expectedID, expectedID > 0, subposts.contains(where: { $0.id == expectedID }) {
-                    newlyFoundSubpostID = expectedID
-                }
-
-                // Check 2: check if the latest subpost at the end was authored by the current user recently
-                if newlyFoundSubpostID == nil, let lastSubpost = subposts.last {
-                    let isSelfAuthor = (String(lastSubpost.author.id) == account?.uid)
-                        || (account?.name.isEmpty == false && account?.name == lastSubpost.author.name)
-                        || (account?.displayName.isEmpty == false && account?.displayName == lastSubpost.author.displayName)
-                    let isRecent = lastSubpost.createdAt.map { abs($0.timeIntervalSinceNow) < 120 } ?? true
-                    if isSelfAuthor && isRecent {
-                        newlyFoundSubpostID = lastSubpost.id
-                    }
-                }
-
-                let hasNewSubpost = (newlyFoundSubpostID != nil) || (subposts.count > previousCount)
-                if hasNewSubpost {
-                    if let foundID = newlyFoundSubpostID {
-                        scrollToSubpostID = foundID
-                    } else if let last = subposts.last {
-                        scrollToSubpostID = last.id
-                    }
-                    break
-                }
-            }
-
+            await reload()
+            guard Task.isCancelled == false,
+                  generation == submissionReloadGeneration,
+                  account?.sessionIdentity == submittedAccount.sessionIdentity,
+                  composerRoute == nil else { return }
             if subposts.count > post.subpostCount {
                 post.subpostCount = subposts.count
                 post.previewSubposts = Array(subposts.prefix(3))
                 onPostLikeChanged(post)
             }
-
-            if let targetScrollID = newlyFoundSubpostID ?? (expectedID.flatMap { $0 > 0 ? $0 : nil }) {
-                scrollToSubpostID = targetScrollID
-            }
-
-            guard Task.isCancelled == false,
-                  generation == submissionReloadGeneration,
-                  account?.sessionIdentity == submittedAccount.sessionIdentity,
-                  composerRoute == nil else { return }
             submissionReloadTask = nil
         }
     }

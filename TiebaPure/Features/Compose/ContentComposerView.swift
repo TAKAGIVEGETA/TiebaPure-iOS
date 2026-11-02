@@ -25,6 +25,10 @@ struct ContentComposerView: View {
     @State private var draftStatusMessage: String?
     @State private var showsEmoticons = false
     @State private var showsUnsavedChangesConfirmation = false
+    @State private var activeChallenge: ContentSubmissionChallenge?
+    @State private var showsVerificationSheet = false
+    @State private var showsFailureAlert = false
+    @State private var submissionFailureMessage = ""
     @StateObject private var dismissalGate = ContentComposerDismissalGate()
 
     @FocusState private var focusedField: ContentComposerField?
@@ -134,6 +138,29 @@ struct ContentComposerView: View {
         }
         .compatibleOnChange(of: photoSelection) { _, newValue in
             preparePhotoSelection(newValue)
+        }
+        .alert(
+            "发送失败",
+            isPresented: $showsFailureAlert
+        ) {
+            Button("好", role: .cancel) {
+                showsFailureAlert = false
+            }
+        } message: {
+            Text(submissionFailureMessage)
+        }
+        .sheet(isPresented: $showsVerificationSheet) {
+            if let challenge = activeChallenge {
+                ContentComposerVerificationSheet(
+                    challenge: challenge,
+                    onSubmit: { code in
+                        submitVerification(code: code)
+                    },
+                    onCancel: {
+                        showsVerificationSheet = false
+                    }
+                )
+            }
         }
         .onDisappear {
             photoLoadingTask?.cancel()
@@ -509,9 +536,14 @@ struct ContentComposerView: View {
         let request = currentRequest
         if let message = ContentComposerPolicy.validationMessage(for: request) {
             submissionState = .failed(message)
+            submissionFailureMessage = message
+            showsFailureAlert = true
             return
         }
+        performSubmit(request: request)
+    }
 
+    private func performSubmit(request: ContentSubmissionRequest) {
         focusedField = nil
         draftStatusMessage = nil
         submissionState = .submitting
@@ -525,10 +557,26 @@ struct ContentComposerView: View {
                 onSent(receipt)
             } catch is CancellationError {
                 submissionState = .idle
+            } catch let ContentSubmissionError.verificationRequired(challenge) {
+                activeChallenge = challenge
+                showsVerificationSheet = true
+                submissionState = .idle
             } catch {
                 submissionState = .failed(error.localizedDescription)
+                submissionFailureMessage = error.localizedDescription
+                showsFailureAlert = true
             }
         }
+    }
+
+    private func submitVerification(code: String) {
+        guard let challenge = activeChallenge else { return }
+        showsVerificationSheet = false
+        var request = currentRequest
+        request.verificationCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        request.verificationMD5 = challenge.verificationMD5
+        request.verificationType = challenge.verificationType
+        performSubmit(request: request)
     }
 
     private func saveDraft() {
@@ -1157,3 +1205,115 @@ private struct ContentComposerStatusView: View {
             .accessibilityElement(children: .combine)
     }
 }
+
+private struct ContentComposerVerificationSheet: View {
+    let challenge: ContentSubmissionChallenge
+    let onSubmit: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var code: String = ""
+    @State private var refreshID = UUID()
+    @FocusState private var isFocused: Bool
+
+    private var imageURL: URL? {
+        guard let baseURL = challenge.pictureURL else { return nil }
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return baseURL
+        }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll(where: { $0.name == "_r" })
+        queryItems.append(URLQueryItem(name: "_r", value: refreshID.uuidString))
+        components.queryItems = queryItems
+        return components.url ?? baseURL
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text(challenge.message.isEmpty ? "贴吧要求安全验证，请输入图片中的字符。" : challenge.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                HStack(spacing: 12) {
+                    if let imageURL {
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .frame(width: 140, height: 50)
+                            case let .success(image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 140, height: 50)
+                            case .failure:
+                                VStack(spacing: 2) {
+                                    Image(systemName: "exclamationmark.triangle")
+                                    Text("加载失败")
+                                        .font(.caption2)
+                                }
+                                .frame(width: 140, height: 50)
+                                .foregroundStyle(.secondary)
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(Color(uiColor: .separator), lineWidth: 0.5)
+                        )
+                    }
+
+                    Button {
+                        refreshID = UUID()
+                    } label: {
+                        Label("换一张", systemImage: "arrow.clockwise")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                TextField("请输入验证码", text: $code)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .focused($isFocused)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 220)
+                    .onSubmit {
+                        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed.isEmpty == false {
+                            onSubmit(trimmed)
+                        }
+                    }
+
+                Spacer()
+            }
+            .padding(.top, 24)
+            .navigationTitle("安全验证")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("确定") {
+                        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onSubmit(trimmed)
+                    }
+                    .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                isFocused = true
+            }
+        }
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
+    }
+}
+
