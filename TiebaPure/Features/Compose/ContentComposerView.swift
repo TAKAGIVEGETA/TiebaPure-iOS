@@ -186,7 +186,10 @@ struct ContentComposerView: View {
                 .lineLimit(1...3)
                 .focused($focusedField, equals: .title)
                 .submitLabel(.next)
-                .onSubmit { focusedField = .body }
+                .onSubmit {
+                    focusedField = nil
+                    editorController.becomeFirstResponder()
+                }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 11)
                 .frame(minHeight: 44)
@@ -223,11 +226,14 @@ struct ContentComposerView: View {
 
                 EmoticonTextEditor(
                     text: $bodyText,
-                    isFocused: Binding(
-                        get: { focusedField == .body },
-                        set: { if $0 { focusedField = .body } else if focusedField == .body { focusedField = nil } }
-                    ),
-                    controller: editorController
+                    controller: editorController,
+                    onFocusChanged: { isFocused in
+                        if isFocused && showsEmoticons {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showsEmoticons = false
+                            }
+                        }
+                    }
                 )
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -458,6 +464,7 @@ struct ContentComposerView: View {
                     showsEmoticons = false
                 } else {
                     focusedField = nil
+                    editorController.resignFirstResponder()
                     showsEmoticons = true
                 }
             }
@@ -554,6 +561,7 @@ struct ContentComposerView: View {
 
     private func performSubmit(request: ContentSubmissionRequest) {
         focusedField = nil
+        editorController.resignFirstResponder()
         draftStatusMessage = nil
         submissionState = .submitting
         Task {
@@ -589,6 +597,7 @@ struct ContentComposerView: View {
     }
 
     private func saveDraft() {
+        editorController.resignFirstResponder()
         persistDraft(thenClose: false)
     }
 
@@ -599,6 +608,7 @@ struct ContentComposerView: View {
             return
         }
         focusedField = nil
+        editorController.resignFirstResponder()
         showsUnsavedChangesConfirmation = true
     }
 
@@ -1532,13 +1542,28 @@ enum EmoticonStringCodec {
     }
 }
 
-/// Allows parent view to command insertion of emoticons into the active text editor.
+/// Allows parent view to command insertion of emoticons and explicit focus transitions into the active text editor.
 @MainActor
 final class EmoticonTextEditorController: ObservableObject {
     var insertEmoticonHandler: ((_ token: String, _ imageName: String) -> Void)?
+    var becomeFirstResponderHandler: (() -> Void)?
+    var resignFirstResponderHandler: (() -> Void)?
+    var isFirstResponderHandler: (() -> Bool)?
 
     func insertEmoticon(token: String, imageName: String) {
         insertEmoticonHandler?(token, imageName)
+    }
+
+    func becomeFirstResponder() {
+        becomeFirstResponderHandler?()
+    }
+
+    func resignFirstResponder() {
+        resignFirstResponderHandler?()
+    }
+
+    var isFirstResponder: Bool {
+        isFirstResponderHandler?() ?? false
     }
 }
 
@@ -1546,8 +1571,8 @@ final class EmoticonTextEditorController: ObservableObject {
 /// while binding to a plain string representation for network transmission and draft storage.
 struct EmoticonTextEditor: UIViewRepresentable {
     @Binding var text: String
-    var isFocused: Binding<Bool>?
     var controller: EmoticonTextEditorController?
+    var onFocusChanged: ((Bool) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -1568,10 +1593,7 @@ struct EmoticonTextEditor: UIViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.setupArtworkObserver()
-
-        controller?.insertEmoticonHandler = { [weak coordinator = context.coordinator] token, imageName in
-            coordinator?.insertEmoticon(token: token, imageName: imageName)
-        }
+        context.coordinator.bindController()
 
         let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
         let color = textView.textColor ?? UIColor.label
@@ -1586,9 +1608,7 @@ struct EmoticonTextEditor: UIViewRepresentable {
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         context.coordinator.parent = self
-        controller?.insertEmoticonHandler = { [weak coordinator = context.coordinator] token, imageName in
-            coordinator?.insertEmoticon(token: token, imageName: imageName)
-        }
+        context.coordinator.bindController()
 
         // Avoid modifying the attributed string while the user is actively typing in IME
         if uiView.markedTextRange != nil {
@@ -1615,19 +1635,6 @@ struct EmoticonTextEditor: UIViewRepresentable {
                 uiView.selectedRange = NSRange(location: newLength, length: 0)
             }
         }
-
-        // Handle focus state sync
-        if let isFocused = isFocused?.wrappedValue {
-            if isFocused && !uiView.isFirstResponder && uiView.window != nil {
-                DispatchQueue.main.async {
-                    uiView.becomeFirstResponder()
-                }
-            } else if !isFocused && uiView.isFirstResponder {
-                DispatchQueue.main.async {
-                    uiView.resignFirstResponder()
-                }
-            }
-        }
     }
 
     @MainActor
@@ -1645,6 +1652,24 @@ struct EmoticonTextEditor: UIViewRepresentable {
         deinit {
             if let notificationToken {
                 NotificationCenter.default.removeObserver(notificationToken)
+            }
+        }
+
+        func bindController() {
+            guard let controller = parent.controller else { return }
+            controller.insertEmoticonHandler = { [weak self] token, imageName in
+                self?.insertEmoticon(token: token, imageName: imageName)
+            }
+            controller.becomeFirstResponderHandler = { [weak self] in
+                guard let textView = self?.textView, !textView.isFirstResponder else { return }
+                textView.becomeFirstResponder()
+            }
+            controller.resignFirstResponderHandler = { [weak self] in
+                guard let textView = self?.textView, textView.isFirstResponder else { return }
+                textView.resignFirstResponder()
+            }
+            controller.isFirstResponderHandler = { [weak self] in
+                self?.textView?.isFirstResponder ?? false
             }
         }
 
@@ -1767,15 +1792,11 @@ struct EmoticonTextEditor: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
-            if parent.isFocused?.wrappedValue == false {
-                parent.isFocused?.wrappedValue = true
-            }
+            parent.onFocusChanged?(true)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
-            if parent.isFocused?.wrappedValue == true {
-                parent.isFocused?.wrappedValue = false
-            }
+            parent.onFocusChanged?(false)
         }
     }
 }
