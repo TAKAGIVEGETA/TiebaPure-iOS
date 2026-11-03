@@ -1,4 +1,5 @@
 import ImageIO
+import UIKit
 import UniformTypeIdentifiers
 import XCTest
 @testable import TiebaPure
@@ -344,5 +345,123 @@ final class ContentComposerPolicyTests: XCTestCase {
         return try XCTUnwrap(
             CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         )
+    }
+
+    func testEmoticonStringCodecEmptyString() {
+        let font = UIFont.systemFont(ofSize: 16)
+        let color = UIColor.label
+        let attr = EmoticonStringCodec.decodeToAttributedString(text: "", font: font, textColor: color)
+        XCTAssertEqual(attr.length, 0)
+        let plain = EmoticonStringCodec.encodeToPlainText(from: attr)
+        XCTAssertEqual(plain, "")
+    }
+
+    func testEmoticonStringCodecPlainTextLossless() {
+        let font = UIFont.systemFont(ofSize: 16)
+        let color = UIColor.label
+        let text = "纯文本内容，没有任何贴吧表情。"
+        let attr = EmoticonStringCodec.decodeToAttributedString(text: text, font: font, textColor: color)
+        XCTAssertEqual(attr.string, text)
+        let plain = EmoticonStringCodec.encodeToPlainText(from: attr)
+        XCTAssertEqual(plain, text)
+    }
+
+    func testEmoticonStringCodecSingleToken() {
+        let font = UIFont.systemFont(ofSize: 16)
+        let color = UIColor.label
+        let text = "#(滑稽)"
+        let attr = EmoticonStringCodec.decodeToAttributedString(text: text, font: font, textColor: color)
+        XCTAssertEqual(attr.length, 1)
+
+        var foundAttachment: EmoticonTextAttachment?
+        attr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attr.length), options: []) { value, _, _ in
+            if let attachment = value as? EmoticonTextAttachment {
+                foundAttachment = attachment
+            }
+        }
+        XCTAssertNotNil(foundAttachment)
+        XCTAssertEqual(foundAttachment?.token, "#(滑稽)")
+        XCTAssertEqual(foundAttachment?.imageName, "image_emoticon25")
+
+        let encoded = EmoticonStringCodec.encodeToPlainText(from: attr)
+        XCTAssertEqual(encoded, text)
+    }
+
+    func testEmoticonStringCodecMixedTokens() {
+        let font = UIFont.systemFont(ofSize: 16)
+        let color = UIColor.label
+        let text = "你好#(滑稽)世界#(怒)\n换行之后还有#(呵呵)结束"
+        let attr = EmoticonStringCodec.decodeToAttributedString(text: text, font: font, textColor: color)
+
+        var attachmentCount = 0
+        attr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attr.length), options: []) { value, _, _ in
+            if value is EmoticonTextAttachment {
+                attachmentCount += 1
+            }
+        }
+        XCTAssertEqual(attachmentCount, 3)
+
+        let encoded = EmoticonStringCodec.encodeToPlainText(from: attr)
+        XCTAssertEqual(encoded, text)
+    }
+
+    func testEmoticonStringCodecUnknownTokens() {
+        let font = UIFont.systemFont(ofSize: 16)
+        let color = UIColor.label
+        let text = "#(不存在的表情名字12345)"
+        let attr = EmoticonStringCodec.decodeToAttributedString(text: text, font: font, textColor: color)
+        var attachmentCount = 0
+        attr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attr.length), options: []) { value, _, _ in
+            if value is EmoticonTextAttachment {
+                attachmentCount += 1
+            }
+        }
+        XCTAssertEqual(attachmentCount, 0)
+        XCTAssertEqual(attr.string, text)
+        let encoded = EmoticonStringCodec.encodeToPlainText(from: attr)
+        XCTAssertEqual(encoded, text)
+    }
+
+    func testEmoticonStringCodecFormatInlineTokens() {
+        let font = UIFont.systemFont(ofSize: 16)
+        let color = UIColor.label
+        let mutable = NSMutableAttributedString(
+            string: "测试一下#(滑稽)在输入过程中",
+            attributes: [.font: font, .foregroundColor: color]
+        )
+        let changed = EmoticonStringCodec.formatInlineTokens(
+            in: mutable,
+            font: font,
+            textColor: color
+        )
+        XCTAssertTrue(changed)
+
+        var hasAttachment = false
+        mutable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: mutable.length), options: []) { value, _, _ in
+            if let attachment = value as? EmoticonTextAttachment {
+                hasAttachment = true
+                XCTAssertEqual(attachment.token, "#(滑稽)")
+            }
+        }
+        XCTAssertTrue(hasAttachment)
+
+        let plain = EmoticonStringCodec.encodeToPlainText(from: mutable)
+        XCTAssertEqual(plain, "测试一下#(滑稽)在输入过程中")
+    }
+
+    func testEmoticonAttachmentBounds() {
+        let font = UIFont.systemFont(ofSize: 16)
+        let attachment = EmoticonTextAttachment(
+            token: "#(滑稽)",
+            imageName: "image_emoticon25",
+            image: nil,
+            font: font
+        )
+        let bounds = attachment.bounds
+        let size = ceil(font.lineHeight)
+        XCTAssertEqual(bounds.width, size)
+        XCTAssertEqual(bounds.height, size)
+        let expectedY = floor((font.capHeight - size) / 2.0)
+        XCTAssertEqual(bounds.origin.y, expectedY)
     }
 }

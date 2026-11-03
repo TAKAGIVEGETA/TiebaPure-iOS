@@ -30,6 +30,7 @@ struct ContentComposerView: View {
     @State private var showsFailureAlert = false
     @State private var submissionFailureMessage = ""
     @StateObject private var dismissalGate = ContentComposerDismissalGate()
+    @StateObject private var editorController = EmoticonTextEditorController()
 
     @FocusState private var focusedField: ContentComposerField?
     @ScaledMetric(relativeTo: .body) private var editorMinimumHeight = 180
@@ -220,14 +221,18 @@ struct ContentComposerView: View {
                         .allowsHitTesting(false)
                 }
 
-                TextEditor(text: $bodyText)
-                    .font(.body)
-                    .focused($focusedField, equals: .body)
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .frame(minHeight: max(editorMinimumHeight, 132))
-                    .accessibilityLabel("正文内容")
+                EmoticonTextEditor(
+                    text: $bodyText,
+                    isFocused: Binding(
+                        get: { focusedField == .body },
+                        set: { if $0 { focusedField = .body } else if focusedField == .body { focusedField = nil } }
+                    ),
+                    controller: editorController
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(minHeight: max(editorMinimumHeight, 132))
+                .accessibilityLabel("正文内容")
             }
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -302,10 +307,14 @@ struct ContentComposerView: View {
                 ) {
                     ForEach(ContentComposerEmoticonCatalog.entries) { entry in
                         ContentComposerEmoticonButton(entry: entry) {
-                            bodyText = ContentComposerPolicy.appendingEmoticon(
-                                entry.token,
-                                to: bodyText
-                            )
+                            if let handler = editorController.insertEmoticonHandler {
+                                handler(entry.token, entry.imageName)
+                            } else {
+                                bodyText = ContentComposerPolicy.appendingEmoticon(
+                                    entry.token,
+                                    to: bodyText
+                                )
+                            }
                         }
                     }
                 }
@@ -1081,7 +1090,7 @@ private enum ContentComposerSubmissionState: Equatable {
     }
 }
 
-private struct ContentComposerEmoticon: Identifiable, Equatable, Sendable {
+struct ContentComposerEmoticon: Identifiable, Equatable, Sendable {
     let imageName: String
     let label: String
     let token: String
@@ -1089,7 +1098,7 @@ private struct ContentComposerEmoticon: Identifiable, Equatable, Sendable {
     var id: String { imageName }
 }
 
-private enum ContentComposerEmoticonCatalog {
+enum ContentComposerEmoticonCatalog {
     private static let imageNumbers = Array(1...50) + Array(77...84) + [89]
 
     static let entries: [ContentComposerEmoticon] = imageNumbers.compactMap { number in
@@ -1314,6 +1323,460 @@ private struct ContentComposerVerificationSheet: View {
         }
         .presentationDetents([.height(280)])
         .presentationDragIndicator(.visible)
+    }
+}
+
+// MARK: - Rich Emoticon Text Editor
+
+/// An attachment that renders a Tieba emoticon inline while preserving its textual token (e.g. `#(滑稽)`).
+final class EmoticonTextAttachment: NSTextAttachment {
+    let token: String
+    let imageName: String
+
+    init(token: String, imageName: String, image: UIImage?, font: UIFont) {
+        self.token = token
+        self.imageName = imageName
+        super.init(data: nil, ofType: nil)
+        self.image = image
+        updateBounds(for: font)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateBounds(for font: UIFont) {
+        let size = ceil(font.lineHeight)
+        // Center the emoticon vertically against the font's cap-height.
+        let yOffset = floor((font.capHeight - size) / 2.0)
+        self.bounds = CGRect(x: 0, y: yOffset, width: size, height: size)
+    }
+}
+
+/// Converts losslessly between plain text containing Tieba emoticon tokens and
+/// NSAttributedString containing inline EmoticonTextAttachments.
+enum EmoticonStringCodec {
+    private static let tokenRegex = try? NSRegularExpression(
+        pattern: #"#\(([^)]+)\)|\(#([^)]+)\)|\[([^\]\n]{1,12})\]"#,
+        options: []
+    )
+
+    static func decodeToAttributedString(
+        text: String,
+        font: UIFont,
+        textColor: UIColor
+    ) -> NSAttributedString {
+        guard text.isEmpty == false, let regex = tokenRegex else {
+            return NSAttributedString(string: text, attributes: [
+                .font: font,
+                .foregroundColor: textColor
+            ])
+        }
+
+        let nsText = text as NSString
+        let matches = regex.matches(
+            in: text,
+            options: [],
+            range: NSRange(location: 0, length: nsText.length)
+        )
+        guard matches.isEmpty == false else {
+            return NSAttributedString(string: text, attributes: [
+                .font: font,
+                .foregroundColor: textColor
+            ])
+        }
+
+        let result = NSMutableAttributedString()
+        var cursor = 0
+
+        for match in matches {
+            if match.range.location > cursor {
+                let textRange = NSRange(location: cursor, length: match.range.location - cursor)
+                let textValue = nsText.substring(with: textRange)
+                result.append(NSAttributedString(string: textValue, attributes: [
+                    .font: font,
+                    .foregroundColor: textColor
+                ]))
+            }
+
+            let rawToken = nsText.substring(with: match.range)
+            var tokenName: String?
+            for i in 1..<match.numberOfRanges {
+                let range = match.range(at: i)
+                if range.location != NSNotFound {
+                    tokenName = nsText.substring(with: range)
+                    break
+                }
+            }
+
+            if let name = tokenName, let imageName = TiebaEmoticon.imageName(for: name) {
+                let image = TiebaEmoticon.cachedImage(for: imageName) ?? placeholderImage(for: name, font: font)
+                let attachment = EmoticonTextAttachment(
+                    token: rawToken,
+                    imageName: imageName,
+                    image: image,
+                    font: font
+                )
+                let attr = NSMutableAttributedString(attachment: attachment)
+                attr.addAttributes([
+                    .font: font,
+                    .foregroundColor: textColor
+                ], range: NSRange(location: 0, length: attr.length))
+                result.append(attr)
+            } else {
+                result.append(NSAttributedString(string: rawToken, attributes: [
+                    .font: font,
+                    .foregroundColor: textColor
+                ]))
+            }
+            cursor = match.range.location + match.range.length
+        }
+
+        if cursor < nsText.length {
+            let tail = nsText.substring(from: cursor)
+            result.append(NSAttributedString(string: tail, attributes: [
+                .font: font,
+                .foregroundColor: textColor
+            ]))
+        }
+
+        return result
+    }
+
+    static func encodeToPlainText(from attributedString: NSAttributedString) -> String {
+        var plain = ""
+        attributedString.enumerateAttributes(
+            in: NSRange(location: 0, length: attributedString.length),
+            options: []
+        ) { attrs, range, _ in
+            if let attachment = attrs[.attachment] as? EmoticonTextAttachment {
+                plain.append(attachment.token)
+            } else {
+                plain.append((attributedString.string as NSString).substring(with: range))
+            }
+        }
+        return plain
+    }
+
+    /// Converts any unformatted emoticon tokens inside the attributed string into attachments in-place.
+    /// Returns true if any replacement took place.
+    static func formatInlineTokens(
+        in attributedString: NSMutableAttributedString,
+        font: UIFont,
+        textColor: UIColor
+    ) -> Bool {
+        guard let regex = tokenRegex else { return false }
+        let currentString = attributedString.string
+        let nsString = currentString as NSString
+        let matches = regex.matches(
+            in: currentString,
+            options: [],
+            range: NSRange(location: 0, length: nsString.length)
+        )
+        guard matches.isEmpty == false else { return false }
+
+        var changed = false
+        // Iterate backwards so indices remain valid.
+        for match in matches.reversed() {
+            // Verify that this range does not already contain an attachment.
+            var hasAttachment = false
+            attributedString.enumerateAttribute(.attachment, in: match.range, options: []) { value, _, stop in
+                if value != nil {
+                    hasAttachment = true
+                    stop.pointee = true
+                }
+            }
+            if hasAttachment { continue }
+
+            let rawToken = nsString.substring(with: match.range)
+            var tokenName: String?
+            for i in 1..<match.numberOfRanges {
+                let range = match.range(at: i)
+                if range.location != NSNotFound {
+                    tokenName = nsString.substring(with: range)
+                    break
+                }
+            }
+
+            guard let name = tokenName, let imageName = TiebaEmoticon.imageName(for: name) else {
+                continue
+            }
+
+            let image = TiebaEmoticon.cachedImage(for: imageName) ?? placeholderImage(for: name, font: font)
+            let attachment = EmoticonTextAttachment(
+                token: rawToken,
+                imageName: imageName,
+                image: image,
+                font: font
+            )
+            let replacement = NSMutableAttributedString(attachment: attachment)
+            replacement.addAttributes([
+                .font: font,
+                .foregroundColor: textColor
+            ], range: NSRange(location: 0, length: replacement.length))
+            attributedString.replaceCharacters(in: match.range, with: replacement)
+            changed = true
+        }
+        return changed
+    }
+
+    private static func placeholderImage(for name: String, font: UIFont) -> UIImage {
+        let size = CGSize(width: ceil(font.lineHeight), height: ceil(font.lineHeight))
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            let rect = CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: 4)
+            UIColor.systemGray5.setFill()
+            path.fill()
+        }
+    }
+}
+
+/// Allows parent view to command insertion of emoticons into the active text editor.
+@MainActor
+final class EmoticonTextEditorController: ObservableObject {
+    var insertEmoticonHandler: ((_ token: String, _ imageName: String) -> Void)?
+
+    func insertEmoticon(token: String, imageName: String) {
+        insertEmoticonHandler?(token, imageName)
+    }
+}
+
+/// A SwiftUI wrapper over UITextView that displays Tieba emoticons as inline rendered images
+/// while binding to a plain string representation for network transmission and draft storage.
+struct EmoticonTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    var isFocused: Binding<Bool>?
+    var controller: EmoticonTextEditorController?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.backgroundColor = .clear
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
+        textView.textColor = UIColor.label
+        textView.tintColor = UIColor.tintColor
+        textView.isScrollEnabled = false
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
+        textView.textContainer.lineFragmentPadding = 4
+        textView.adjustsFontForContentSizeCategory = true
+        textView.delegate = context.coordinator
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        context.coordinator.textView = textView
+        context.coordinator.setupArtworkObserver()
+
+        controller?.insertEmoticonHandler = { [weak coordinator = context.coordinator] token, imageName in
+            coordinator?.insertEmoticon(token: token, imageName: imageName)
+        }
+
+        let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
+        let color = textView.textColor ?? UIColor.label
+        textView.attributedText = EmoticonStringCodec.decodeToAttributedString(
+            text: text,
+            font: font,
+            textColor: color
+        )
+
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        context.coordinator.parent = self
+        controller?.insertEmoticonHandler = { [weak coordinator = context.coordinator] token, imageName in
+            coordinator?.insertEmoticon(token: token, imageName: imageName)
+        }
+
+        // Avoid modifying the attributed string while the user is actively typing in IME
+        if uiView.markedTextRange != nil {
+            return
+        }
+
+        let currentPlainText = EmoticonStringCodec.encodeToPlainText(from: uiView.attributedText)
+        if currentPlainText != text {
+            let font = uiView.font ?? UIFont.preferredFont(forTextStyle: .body)
+            let color = uiView.textColor ?? UIColor.label
+            let previousRange = uiView.selectedRange
+            let newAttributed = EmoticonStringCodec.decodeToAttributedString(
+                text: text,
+                font: font,
+                textColor: color
+            )
+            uiView.attributedText = newAttributed
+
+            // Restore selection within bounds
+            let newLength = newAttributed.length
+            if previousRange.location <= newLength {
+                uiView.selectedRange = previousRange
+            } else {
+                uiView.selectedRange = NSRange(location: newLength, length: 0)
+            }
+        }
+
+        // Handle focus state sync
+        if let isFocused = isFocused?.wrappedValue {
+            if isFocused && !uiView.isFirstResponder && uiView.window != nil {
+                DispatchQueue.main.async {
+                    uiView.becomeFirstResponder()
+                }
+            } else if !isFocused && uiView.isFirstResponder {
+                DispatchQueue.main.async {
+                    uiView.resignFirstResponder()
+                }
+            }
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: EmoticonTextEditor
+        weak var textView: UITextView?
+        private var notificationToken: NSObjectProtocol?
+        private var isInternalUpdating = false
+
+        init(_ parent: EmoticonTextEditor) {
+            self.parent = parent
+            super.init()
+        }
+
+        deinit {
+            if let notificationToken {
+                NotificationCenter.default.removeObserver(notificationToken)
+            }
+        }
+
+        func setupArtworkObserver() {
+            notificationToken = NotificationCenter.default.addObserver(
+                forName: TiebaEmoticonArtwork.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleArtworkDidChange(notification)
+            }
+            Task(priority: .utility) {
+                for entry in ContentComposerEmoticonCatalog.entries {
+                    _ = TiebaEmoticon.cachedImage(for: entry.imageName)
+                }
+            }
+        }
+
+        private func handleArtworkDidChange(_ notification: Notification) {
+            guard let textView else { return }
+            let imageNames = TiebaEmoticonArtwork.imageNames(from: notification)
+            guard imageNames.isEmpty == false else { return }
+
+            let attributed = textView.attributedText ?? NSAttributedString()
+            var needsLayout = false
+
+            attributed.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: attributed.length),
+                options: []
+            ) { value, _, _ in
+                if let attachment = value as? EmoticonTextAttachment,
+                   imageNames.contains(attachment.imageName) {
+                    if let image = TiebaEmoticon.cachedImage(for: attachment.imageName) {
+                        attachment.image = image
+                        needsLayout = true
+                    }
+                }
+            }
+
+            if needsLayout {
+                textView.setNeedsDisplay()
+                textView.layoutManager.invalidateDisplay(
+                    forCharacterRange: NSRange(location: 0, length: attributed.length)
+                )
+            }
+        }
+
+        func insertEmoticon(token: String, imageName: String) {
+            guard let textView else {
+                parent.text = ContentComposerPolicy.appendingEmoticon(token, to: parent.text)
+                return
+            }
+
+            let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
+            let color = textView.textColor ?? UIColor.label
+            let image = TiebaEmoticon.cachedImage(for: imageName)
+            let attachment = EmoticonTextAttachment(
+                token: token,
+                imageName: imageName,
+                image: image,
+                font: font
+            )
+
+            let attachmentString = NSMutableAttributedString(attachment: attachment)
+            attachmentString.addAttributes([
+                .font: font,
+                .foregroundColor: color
+            ], range: NSRange(location: 0, length: attachmentString.length))
+
+            let selectedRange = textView.selectedRange
+            let mutable = NSMutableAttributedString(attributedString: textView.attributedText)
+
+            if selectedRange.location != NSNotFound && selectedRange.location <= mutable.length {
+                mutable.replaceCharacters(in: selectedRange, with: attachmentString)
+                textView.attributedText = mutable
+                let nextCursor = selectedRange.location + attachmentString.length
+                textView.selectedRange = NSRange(location: min(nextCursor, mutable.length), length: 0)
+            } else {
+                mutable.append(attachmentString)
+                textView.attributedText = mutable
+                textView.selectedRange = NSRange(location: mutable.length, length: 0)
+            }
+
+            let plain = EmoticonStringCodec.encodeToPlainText(from: textView.attributedText)
+            parent.text = plain
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            guard isInternalUpdating == false else { return }
+            if textView.markedTextRange != nil { return }
+
+            isInternalUpdating = true
+            defer { isInternalUpdating = false }
+
+            let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
+            let color = textView.textColor ?? UIColor.label
+
+            // Automatically format freshly pasted or typed emoticon tokens (e.g. #(滑稽))
+            let mutable = NSMutableAttributedString(attributedString: textView.attributedText)
+            let previousSelectedRange = textView.selectedRange
+            let formatted = EmoticonStringCodec.formatInlineTokens(
+                in: mutable,
+                font: font,
+                textColor: color
+            )
+
+            if formatted {
+                textView.attributedText = mutable
+                // Re-position selection safely
+                if previousSelectedRange.location <= mutable.length {
+                    textView.selectedRange = previousSelectedRange
+                } else {
+                    textView.selectedRange = NSRange(location: mutable.length, length: 0)
+                }
+            }
+
+            let plain = EmoticonStringCodec.encodeToPlainText(from: textView.attributedText)
+            parent.text = plain
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            if parent.isFocused?.wrappedValue == false {
+                parent.isFocused?.wrappedValue = true
+            }
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            if parent.isFocused?.wrappedValue == true {
+                parent.isFocused?.wrappedValue = false
+            }
+        }
     }
 }
 
